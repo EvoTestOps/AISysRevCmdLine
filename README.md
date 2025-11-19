@@ -16,3 +16,8 @@ It is meant to be a command line equivalent of the AISysRev web tool.
 
 ## Known Issues
 Not all models return valid responses, e.g., OpenAI ones and older Llama models.
+
+To run it say
+```bash
+python screen.py <csv_file_with_columns_named_title_and_abstract>
+
