@@ -1,0 +1,6 @@
+#See OpenRouter for models and their names. 
+#e.g. https://openrouter.ai/google/gemini-2.5-flash-lite
+anthropic/claude-3-haiku
+meta-llama/llama-4-maverick
+google/gemini-2.5-flash-lite
+mistralai/mistral-small-3.2-24b-instruct

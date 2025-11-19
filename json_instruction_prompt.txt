@@ -1,0 +1,34 @@
+Output **ONLY JSON**. The response should be ready to be parsed by Pydantic. Respond strictly in valid JSON format, using the following schema:
+
+{
+  "overall_decision": {
+    "binary_decision": <boolean>,               // true or false
+    "probability_decision": <float>,            // Value between 0.000 and 1.000
+    "likert_decision": <string>,                // Integer in string format, on a Likert scale (1–7)
+    "reason": <string>                          // Reason for the decision
+  },
+  "inclusion_criteria": [
+    {
+      "name": <string>,                         // Identifier for the inclusion criterion (IC1, IC2, etc.).
+      "decision": {
+        "binary_decision": <boolean>,
+        "probability_decision": <float>,
+        "likert_decision": <string>,
+        "reason": <string>                      // Reason for the decision
+      }
+    }
+    // Repeat for each inclusion criterion. All inclusion criteria should be listed here.
+  ],
+  "exclusion_criteria": [
+    {
+      "name": <string>,                         // Identifier for the exclusion criterion (EC1, EC2, etc.).
+      "decision": {
+        "binary_decision": <boolean>,
+        "probability_decision": <float>,
+        "likert_decision": <string>,
+        "reason": <string>                      // Reason for the decision
+      }
+    }
+    // Repeat for each exclusion criterion. All exclusion criteria should be listed here.
+  ]
+}
