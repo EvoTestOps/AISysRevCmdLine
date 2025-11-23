@@ -5,7 +5,8 @@ import sys
 import pandas as pd
 import json
 import os
-from typing import Dict, List, Optional
+import random
+from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field as PydanticField
 from enum import Enum
 from tqdm.asyncio import tqdm_asyncio
@@ -46,7 +47,7 @@ def detect_delimiter(file_path: str) -> str:
         first_line = f.readline()
     return ';' if ';' in first_line else ','
 
-def validate_csv(file_path: str) -> pd.DataFrame:
+def validate_csv(file_path: str, n_rows: int = None) -> pd.DataFrame:
     delimiter = detect_delimiter(file_path)
     required_columns = {'title', 'abstract'}
     found_columns = set()
@@ -77,7 +78,7 @@ def validate_csv(file_path: str) -> pd.DataFrame:
             print(f"WARN: {empty_title} titles are empty.")
         if empty_abstract > 0:
             print(f"WARN: {empty_abstract} abstracts are empty.")
-    df = pd.read_csv(file_path, delimiter=delimiter)
+    df = pd.read_csv(file_path, delimiter=delimiter, nrows=n_rows)
     df.columns = df.columns.str.strip().str.lower()
     return df
 
@@ -143,7 +144,7 @@ async def call_openrouter_async(
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
     max_retries: int = 5,
-) -> Optional[Dict]:
+) -> Tuple[Optional[Dict], bool]:
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -164,53 +165,66 @@ async def call_openrouter_async(
                 async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as response:
                     if response.status == 429:
                         retry_after = int(response.headers.get("Retry-After", 5))
-                        jitter = random.uniform(0, 5) 
+                        jitter = random.uniform(0, 5)
                         retry_after = retry_after + jitter + attempt * retry_after
                         print(f"\nRate limited for model {model}. Retrying after {retry_after} seconds...")
                         await asyncio.sleep(retry_after)
                         continue
                     response.raise_for_status()
                     response_data = await response.json()
-                    return response_data
+                    try:
+                        json.loads(response_data['choices'][0]['message']['content'])
+                        return response_data, True
+                    except (KeyError, json.JSONDecodeError):
+                        return response_data, False
             except Exception as e:
                 print(f"\nAttempt {attempt + 1} failed for model {model}: {e}")
                 await asyncio.sleep(2 ** (attempt + 2))
-        return None
+        return None, False
 
 async def process_prompts_for_model(
     prompts: List[str],
     model: str,
     api_key: str,
     max_concurrent_per_model: int = 20,
-) -> List[Optional[Dict]]:
+) -> Tuple[List[Optional[Dict]], int, int]:
     semaphore = asyncio.Semaphore(max_concurrent_per_model)
     async with aiohttp.ClientSession() as session:
         tasks = [
             call_openrouter_async(prompt, model, api_key, session, semaphore)
             for prompt in prompts
         ]
-        return await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
+        results = await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
+        responses = [result for result, _ in results]
+        successes = sum(1 for _, is_success in results if is_success)
+        failures = len(results) - successes
+        return responses, successes, failures
 
 async def process_all_models(
     prompts: List[str],
     models: List[str],
     api_key: str,
     max_concurrent_per_model: int = 20,
-) -> List[List[Optional[Dict]]]:
+) -> Tuple[List[List[Optional[Dict]]], Dict[str, Tuple[int, int]]]:
     print(f"Processing {len(models)} models with {max_concurrent_per_model} concurrent prompts per model...")
     model_tasks = [
         process_prompts_for_model(prompts, model, api_key, max_concurrent_per_model)
         for model in models
     ]
-    return await tqdm_asyncio.gather(*model_tasks, desc="Processing models")
+    model_results = await tqdm_asyncio.gather(*model_tasks, desc="Processing models")
+    results = [res[0] for res in model_results]
+    stats = {model: (success, failure) for model, (_, success, failure) in zip(models, model_results)}
+    return results, stats
 
-def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: List[str], api_key: str) -> pd.DataFrame:
+def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: List[str], api_key: str) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]]]:
     df = df.copy().reset_index(drop=True)
-    model_results = asyncio.run(process_all_models(prompts, models, api_key, max_concurrent_per_model=20))
+    model_results, stats = asyncio.run(process_all_models(prompts, models, api_key, max_concurrent_per_model=20))
     for model_idx, model in enumerate(models):
         print(f"\nMerging results for model: {model}")
         results = model_results[model_idx]
-        for i, result in enumerate(tqdm(results, desc=f"Merging {model} results", leave=False)):
+        successes = 0
+        failures = 0
+        for i, result in enumerate(results):
             if result:
                 try:
                     parsed = json.loads(result['choices'][0]['message']['content'])
@@ -220,18 +234,22 @@ def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: Li
                         if col_name not in df.columns:
                             df[col_name] = None
                         df.at[i, col_name] = value
-                except (KeyError, json.JSONDecodeError) as e:
+                    successes += 1
+                except (KeyError, json.JSONDecodeError, TypeError) as e:
                     print(f"\nFailed to parse response for row {i} (model {model}): {e}")
                     col_name = f"{model}_error"
                     if col_name not in df.columns:
                         df[col_name] = None
                     df.at[i, col_name] = f"Failed to parse response: {e}"
+                    failures += 1
             else:
                 col_name = f"{model}_error"
                 if col_name not in df.columns:
                     df[col_name] = None
                 df.at[i, col_name] = "No response from API"
-    return df
+                failures += 1
+        stats[model] = (successes, failures)
+    return df, stats
 
 def add_average_probability(df: pd.DataFrame, models: List[str]) -> pd.DataFrame:
     df["average_probability"] = None
@@ -249,9 +267,10 @@ def add_average_probability(df: pd.DataFrame, models: List[str]) -> pd.DataFrame
 
 # --- Main ---
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("Usage: python csv_reader_nested_async.py <csv_file>")
+    if len(sys.argv) not in (2, 3):
+        sys.exit("Usage: python screen_test.py <csv_file> [n_rows]")
     csv_file = sys.argv[1]
+    n_rows = int(sys.argv[2]) if len(sys.argv) == 3 else 10
     api_key = load_api_key("~/openrouter.key")
     models = load_models("models.md")
     output_file = generate_output_filename(csv_file, models)
@@ -263,11 +282,14 @@ if __name__ == "__main__":
     with open('json_instruction_prompt.txt', 'r') as file:
         additional_instructions = file.read()
     print("Validating CSV file:")
-    df = validate_csv(csv_file)
+    df = validate_csv(csv_file, n_rows=n_rows)
     print(f"In total {len(df)} articles.")
     print(f"Criteria:\n ------------------\n {criteria[:300]}... \n ------------------")
     print("Generating prompts:")
     prompts = generate_prompts(df, criteria, additional_instructions)
-    enriched_df = run_nested_async_processing(df, prompts, models, api_key)
+    enriched_df, stats = run_nested_async_processing(df, prompts, models, api_key)
     enriched_df = add_average_probability(enriched_df, models)
     save_enriched_csv(enriched_df, output_file)
+    print("\nModel statistics:")
+    for model, (success, failure) in stats.items():
+        print(f"{model}: {success} successes, {failure} failures")
