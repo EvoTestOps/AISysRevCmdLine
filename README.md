@@ -8,15 +8,19 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 ---
 ## Features
 - **Structured LLM Responses:** Uses Pydantic models to enforce structured JSON output from LLMs.
-- **Concurrent API Calls:** Efficiently processes multiple articles and models in parallel.
-- **Model selection:** Select models you want to run from OpenRouter.
-- **Inclusion / Exclusion Criteria:** Customize inclusion/exclusion criteria and instructions.
+- **Concurrent API Calls:** Efficiently processes multiple articles and models in parallel
+- **Model selection:** Copy the example file and adjust models you want to run from OpenRouter your settings:
+  ```bash
+  cp models.md.example models.md
+- **Inclusion / Exclusion Criteria:** Customize inclusion/exclusion criteria and instructions by copying the example file and adjusting it:
+  ```bash
+  cp criteria.md.example criteria.md
 - **Error Handling:** Semi-robust retry logic and error reporting.
 - **Progress Tracking:** Real-time progress bars with `tqdm`.
 
 
 
-To run it say
+After customizing as shown above, you can run it
 ```bash
 python screen.py <csv_file_with_columns_named_title_and_abstract>
 ```
