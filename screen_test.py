@@ -143,8 +143,8 @@ async def call_openrouter_async(
     api_key: str,
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
-    max_retries: int = 5,
-) -> Tuple[Optional[Dict], bool]:
+    max_retries: int = 3,
+) -> Optional[Dict]:
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -171,16 +171,11 @@ async def call_openrouter_async(
                         await asyncio.sleep(retry_after)
                         continue
                     response.raise_for_status()
-                    response_data = await response.json()
-                    try:
-                        json.loads(response_data['choices'][0]['message']['content'])
-                        return response_data, True
-                    except (KeyError, json.JSONDecodeError):
-                        return response_data, False
+                    return  await response.json()
             except Exception as e:
                 print(f"\nAttempt {attempt + 1} failed for model {model}: {e}")
                 await asyncio.sleep(2 ** (attempt + 2))
-        return None, False
+        return None
 
 async def process_prompts_for_model(
     prompts: List[str],
@@ -194,11 +189,8 @@ async def process_prompts_for_model(
             call_openrouter_async(prompt, model, api_key, session, semaphore)
             for prompt in prompts
         ]
-        results = await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
-        responses = [result for result, _ in results]
-        successes = sum(1 for _, is_success in results if is_success)
-        failures = len(results) - successes
-        return responses, successes, failures
+        return await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
+
 
 async def process_all_models(
     prompts: List[str],
@@ -211,14 +203,12 @@ async def process_all_models(
         process_prompts_for_model(prompts, model, api_key, max_concurrent_per_model)
         for model in models
     ]
-    model_results = await tqdm_asyncio.gather(*model_tasks, desc="Processing models")
-    results = [res[0] for res in model_results]
-    stats = {model: (success, failure) for model, (_, success, failure) in zip(models, model_results)}
-    return results, stats
-
+    return  await tqdm_asyncio.gather(*model_tasks, desc="Processing models")
+ 
 def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: List[str], api_key: str) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]]]:
     df = df.copy().reset_index(drop=True)
-    model_results, stats = asyncio.run(process_all_models(prompts, models, api_key, max_concurrent_per_model=20))
+    model_results = asyncio.run(process_all_models(prompts, models, api_key, max_concurrent_per_model=20))
+    stats = {}  # Initialize the stats dictionary here
     for model_idx, model in enumerate(models):
         print(f"\nMerging results for model: {model}")
         results = model_results[model_idx]
@@ -227,7 +217,11 @@ def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: Li
         for i, result in enumerate(results):
             if result:
                 try:
+                    # Parse the JSON content
                     parsed = json.loads(result['choices'][0]['message']['content'])
+                    # Validate with Pydantic does not work for some reason check this. 
+                    # structured_response = StructuredResponse(**parsed)
+                    # Flatten the validated response
                     flattened = flatten_nested_json(parsed)
                     for col, value in flattened.items():
                         col_name = f"{model}_{col}"
@@ -235,12 +229,19 @@ def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: Li
                             df[col_name] = None
                         df.at[i, col_name] = value
                     successes += 1
-                except (KeyError, json.JSONDecodeError, TypeError) as e:
-                    print(f"\nFailed to parse response for row {i} (model {model}): {e}")
+                except json.JSONDecodeError as e:
+                    print(f"\nFailed to parse JSON for row {i} (model {model}): {e}")
                     col_name = f"{model}_error"
                     if col_name not in df.columns:
                         df[col_name] = None
-                    df.at[i, col_name] = f"Failed to parse response: {e}"
+                    df.at[i, col_name] = f"Failed to parse JSON: {e}"
+                    failures += 1
+                except Exception as e:  # Catches Pydantic validation errors and other exceptions
+                    print(f"\nFailed to validate response for row {i} (model {model}): {e}")
+                    col_name = f"{model}_error"
+                    if col_name not in df.columns:
+                        df[col_name] = None
+                    df.at[i, col_name] = f"Failed to validate response: {e}"
                     failures += 1
             else:
                 col_name = f"{model}_error"
@@ -250,6 +251,7 @@ def run_nested_async_processing(df: pd.DataFrame, prompts: List[str], models: Li
                 failures += 1
         stats[model] = (successes, failures)
     return df, stats
+
 
 def add_average_probability(df: pd.DataFrame, models: List[str]) -> pd.DataFrame:
     df["average_probability"] = None
