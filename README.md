@@ -22,7 +22,7 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 After customizing as shown above, you can run it
 ```bash
-python screen.py <csv_file_with_columns_named_title_and_abstract>
+python screen.py <csv_file_with_columns_named_title_and_abstract> all
 ```
 Then you see output like this:
 <img width="2142" height="226" alt="{8BA04E17-0F83-4531-AB75-69C66F3F4E29}" src="https://github.com/user-attachments/assets/fad9c8a5-e24b-4716-989c-a74173b8f3eb" />
@@ -30,13 +30,7 @@ Then you see output like this:
 After that an enriched CSV file is produced with LLM responses. 
 
 ## Known Issues
-Not all models return valid responses, e.g., OpenAI ones and older Llama models.
+Not all models return valid responses, e.g., older Llama models. Default setting of screen.py only runs 10 first rows, which is handy if you want to collects statistics on how good the models performs in terms of giving valid JSON responses and not blowing up your OpenRouter credits.  If you choose your models carefully you may see good success rate in getting valid output, as in image below
+<img width="848" height="130" alt="{33D49869-9DBB-46B4-9A79-B1819A2612F7}" src="https://github.com/user-attachments/assets/1e252878-f9f2-4fae-89d1-6288eca12bd2" />
 
-There is also screen_test.py that does the same thing as screen.py but collects statistics if you want to know how the models are performing in terms of giving correct responses 
-
-```bash
-python screen_test.py <csv_file_with_columns_named_title_and_abstract> 100
-```
-Then you see stats like below. The default is 10 papers but in the above a 100 was specified. 
-
-<img width="908" height="157" alt="{228C07BA-4807-4D22-A57D-ACDEF60C7459}" src="https://github.com/user-attachments/assets/00e60954-2728-4962-9a0b-d9b19f94c092" />
+Ensure your CSV is properly escaped. Google sheet to CSV export may produce CSV lines that contain line breaks without being properly escaped. If that is the case run find "\n" replace " " in Google sheet with regular experssions enabled before exporting to CSV.
