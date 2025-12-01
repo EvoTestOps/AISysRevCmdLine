@@ -1,0 +1,23 @@
+#Rename to criteria_classify.yml
+Systematic review context: Understand the landscape of software test generation.
+
+# Classification aspects and their classes for systematic review
+Classifications:
+  - name: Application Domain
+    classes:
+      - Web application
+      - Mobile Application
+      - Microservice Systems
+      - Other
+
+  - name: Test Type
+    classes:
+      - Unit Testing
+      - Integration
+      - End-to-End
+      - System
+      - Regression
+      - Performance (e.g., Load/Stress)
+      - Security (e.g., Fuzz, Robustness)
+      - UI
+      - Other

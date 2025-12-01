@@ -1,3 +1,8 @@
+#Screens paper based on title and abstract. Lot of code and prompts stolen from SESR-eval paper replication package
+#https://arxiv.org/abs/2507.19027
+#TODO might want to consider removing binary and Likert decision as they cost money and at least Mika is not using them for anything.
+#Probability decision is enough and can always be convertedy to binary or Likert later if needed. Well likert might be a bit tricky to covert from probability.
+
 import asyncio
 import aiohttp
 import csv

@@ -9,8 +9,10 @@ openrouter.key
 
 # Local configuration files
 models.md
+models_classify.md
+models_generate_classes.md
 criteria.md
-
+criteria_classify.yml
 
 # Output files
 *_LLMs_*.csv
