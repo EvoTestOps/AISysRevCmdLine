@@ -14,7 +14,7 @@ import urllib
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List
-from validate_csv import validate_csv
+from helpers import validate_csv, load_models, load_api_key
 
 class ClassRule(BaseModel):
     value: str = Field(description="Rule text, max 10 words")
@@ -27,38 +27,6 @@ class ClassificationGenerationResponse(BaseModel):
     classes: List[ClassificationClass] = Field(
         description="List of 3-10 mutually exclusive classes, each with a title and 2-5 criteria rules."
     )
-
-def load_api_key(key_path: str) -> str:
-    try:
-        with open(os.path.expanduser(key_path), 'r') as file:
-            api_key = file.read().strip()
-        if not api_key:
-            sys.exit("Error: OpenRouter API key file is empty.")
-        return api_key
-    except FileNotFoundError:
-        sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
-
-def load_models(models_file: str) -> List[str]:
-    with open(models_file, 'r') as file:
-        models = [
-            line.strip().strip('"')
-            for line in file
-            if line.strip() and not line.strip().startswith('#')
-        ]
-    return models
-
-
-def detect_delimiter(file_path: str) -> str:
-    with open(file_path, 'r') as f:
-        first_line = f.readline()
-    if ',' in first_line:
-        return ','
-    elif '\t' in first_line:
-        return '\t'
-    elif ';' in first_line:
-        return ';'
-    else:
-        return ','  # default
 
 
 

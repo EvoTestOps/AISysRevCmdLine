@@ -7,9 +7,43 @@
 import csv
 import sys
 import pandas as pd
-from typing import Set, Optional
+from typing import Set, Optional, List
+import os
+
+def load_api_key(key_path: str) -> str:
+    try:
+        with open(os.path.expanduser(key_path), 'r') as file:
+            api_key = file.read().strip()
+        if not api_key:
+            sys.exit("Error: OpenRouter API key file is empty.")
+        return api_key
+    except FileNotFoundError:
+        sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
+
+def load_models(models_file: str) -> List[str]:
+    with open(models_file, 'r') as file:
+        models = [
+            line.strip().strip('"')
+            for line in file
+            if line.strip() and not line.strip().startswith('#')
+        ]
+    return models
 
 
+def get_unique_filename(base_path: str) -> str:
+    """
+    Generate a unique filename by appending a number if the file already exists.
+    """
+    base_dir, base_name = os.path.split(base_path)
+    name, ext = os.path.splitext(base_name)
+
+    counter = 1
+    new_path = base_path
+    while os.path.exists(new_path):
+        new_path = os.path.join(base_dir, f"{name}_{counter}{ext}")
+        counter += 1
+
+    return new_path
 
 def detect_delimiter(file_path: str) -> str:
     with open(file_path, 'r') as f:

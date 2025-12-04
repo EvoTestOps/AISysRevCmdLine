@@ -18,29 +18,29 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Set
 from tqdm.asyncio import tqdm_asyncio
 
-from validate_csv import validate_csv
+from helpers import validate_csv, load_models, load_api_key 
 
 class StructuredResponse(BaseModel, extra="forbid"):
     probability_decision: float = Field(description="A probability that the study belongs to the specified class")
 
-def load_api_key(key_path: str) -> str:
-    try:
-        with open(os.path.expanduser(key_path), 'r') as file:
-            api_key = file.read().strip()
-        if not api_key:
-            sys.exit("Error: OpenRouter API key file is empty.")
-        return api_key
-    except FileNotFoundError:
-        sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
+# def load_api_key(key_path: str) -> str:
+#     try:
+#         with open(os.path.expanduser(key_path), 'r') as file:
+#             api_key = file.read().strip()
+#         if not api_key:
+#             sys.exit("Error: OpenRouter API key file is empty.")
+#         return api_key
+#     except FileNotFoundError:
+#         sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
 
-def load_models(models_file: str) -> List[str]:
-    with open(models_file, 'r') as file:
-        models = [
-            line.strip().strip('"')
-            for line in file
-            if line.strip() and not line.strip().startswith('#')
-        ]
-    return models
+# def load_models(models_file: str) -> List[str]:
+#     with open(models_file, 'r') as file:
+#         models = [
+#             line.strip().strip('"')
+#             for line in file
+#             if line.strip() and not line.strip().startswith('#')
+#         ]
+#     return models
 
 
 
@@ -227,94 +227,6 @@ def parse_results(
     
     return df
 
-# def parse_results(
-#     prompts: List[str], 
-#     results: List[Optional[Dict]], 
-#     df: pd.DataFrame, 
-#     criteria: Dict
-# ) -> pd.DataFrame:
-#     """
-#     Parses the structured JSON results from the LLMs and adds the probability
-#     decision for each classification as new columns in the DataFrame.
-
-#     Args:
-#         prompts: The list of prompts generated for the LLMs.
-#         results: The list of JSON responses from the LLMs.
-#         df: The original DataFrame of papers.
-#         criteria: The loaded classification criteria (to get class names).
-
-#     Returns:
-#         The updated DataFrame with new classification columns.
-#     """
-#     if len(prompts) != len(results):
-#         print("Warning: Mismatch between number of prompts and results.")
-    
-#     # Extract classification names for column creation
-#     classification_data = []
-    
-#     # The number of papers (rows) in the original dataframe
-#     n_papers = len(df)
-    
-#     # The number of classifications/classes per paper (which determines 
-#     # the step size for iterating over results)
-#     classes_per_paper = sum(len(c["classes"]) for c in criteria["Classifications"])
-    
-#     # Sanity check: Ensure the prompt count matches the expected count
-#     expected_prompt_count = n_papers * classes_per_paper
-#     if len(prompts) != expected_prompt_count:
-#         print(f"Error: Expected {expected_prompt_count} prompts, got {len(prompts)}. Results parsing may be inaccurate.")
-#         return df # Return unmodified if counts are critically mismatched
-
-#     # Iterate through the results, one block per paper
-#     for i in range(n_papers):
-#         # Slice the results array for the current paper's classifications
-#         paper_results = results[i * classes_per_paper : (i + 1) * classes_per_paper]
-        
-#         # Initialize dictionary to hold results for the current paper
-#         paper_results_dict = {}
-        
-#         # Iterate through the expected classifications to get the column names
-#         res_idx = 0
-#         for classification in criteria["Classifications"]:
-#             classification_name = classification["name"]
-#             for class_name in classification["classes"]:
-#                 # The new column name format: CLASSIFICATION_CLASS
-#                 col_name = f"{classification_name}_{class_name}".replace(" ", "_").replace("-", "_")
-                
-#                 result = paper_results[res_idx]
-#                 probability = None
-                
-#                 if result and 'choices' in result and result['choices']:
-#                     try:
-#                         # The LLM's structured JSON response is in content
-#                         content_str = result['choices'][0]['message']['content']
-                        
-#                         # Load the structured response using the Pydantic model
-#                         structured_response = StructuredResponse.model_validate_json(content_str)
-#                         probability = structured_response.probability_decision
-                        
-#                         # Check if probability is within the expected range
-#                         if not (0.0 <= probability <= 1.0):
-#                             print(f"Warning: Probability {probability} out of range for paper index {i}, class {col_name}. Setting to NaN.")
-#                             probability = None # Set to None/NaN if outside 0-1
-                            
-#                     except Exception as e:
-#                         # Handle cases where the JSON parsing fails or keys are missing
-#                         # print(f"Error parsing result for paper index {i}, class {col_name}: {e}")
-#                         probability = None
-                
-#                 paper_results_dict[col_name] = probability
-#                 res_idx += 1
-
-#         classification_data.append(paper_results_dict)
-
-#     # Convert the list of dictionaries to a DataFrame
-#     classification_df = pd.DataFrame(classification_data)
-    
-#     # Concatenate the new classification columns with the original DataFrame
-#     df = pd.concat([df.reset_index(drop=True), classification_df.reset_index(drop=True)], axis=1)
-    
-#     return df
 
 def main():
     parser = argparse.ArgumentParser(description="Process papers from a CSV file.")
@@ -345,7 +257,13 @@ def main():
     criteria = load_classification_criteria("criteria_classify.yml")
     prompts = generate_prompts(original_df, criteria)
     print(f"Generated {len(prompts)} prompts.")
+    # Calculate Total Characters
+    total_characters = sum(len(prompt) for prompt in prompts)
 
+    # Estimate Tokens (Total Characters / 4)
+    estimated_tokens = total_characters // 4
+    estimated_m_tokens = estimated_tokens / 1_000_000
+    print(f"Estimated token count (for pricing input): **{estimated_m_tokens:.6f} M tokens**")
     # Get the directory of the input file
     input_dir = os.path.dirname(os.path.abspath(args.csv_file))
     original_filename = os.path.splitext(os.path.basename(args.csv_file))[0]
