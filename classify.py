@@ -15,7 +15,7 @@ import asyncio
 import random
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 from tqdm.asyncio import tqdm_asyncio
 
 from helpers import validate_csv, load_models, load_api_key 
@@ -23,26 +23,59 @@ from helpers import validate_csv, load_models, load_api_key
 class StructuredResponse(BaseModel, extra="forbid"):
     probability_decision: float = Field(description="A probability that the study belongs to the specified class")
 
-# def load_api_key(key_path: str) -> str:
-#     try:
-#         with open(os.path.expanduser(key_path), 'r') as file:
-#             api_key = file.read().strip()
-#         if not api_key:
-#             sys.exit("Error: OpenRouter API key file is empty.")
-#         return api_key
-#     except FileNotFoundError:
-#         sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
+def assign_chosen_class_per_paper(paper_results_dict: Dict[str, Optional[float]], classification_names: Set[str]) -> Dict[str, str]:
+    """
+    Analyzes the classification probabilities for a single paper and assigns a 'chosen' class 
+    for each classification type (e.g., 'classification1_chosen').
 
-# def load_models(models_file: str) -> List[str]:
-#     with open(models_file, 'r') as file:
-#         models = [
-#             line.strip().strip('"')
-#             for line in file
-#             if line.strip() and not line.strip().startswith('#')
-#         ]
-#     return models
+    The logic is:
+    1. Group all class probabilities by their classification name.
+    2. For each classification:
+       - If at least one class has a probability >= 0.5, choose the class with the highest probability.
+       - Otherwise, assign the class 'other'.
 
+    Args:
+        paper_results_dict: A dictionary of {probability_column_name: probability_value}.
+        classification_names: A set of base classification names (e.g., {'classification1', 'classification2'}).
 
+    Returns:
+        A dictionary of {chosen_column_name: chosen_class_name} to be added to the paper's data.
+    """
+    chosen_classes = {}
+    
+    # Group probabilities by base classification name
+    grouped_probs: Dict[str, List[Tuple[str, float]]] = {name: [] for name in classification_names}
+    
+    for col_name, probability in paper_results_dict.items():
+        # Find the base classification name (e.g., from 'Classification_Type_Class_Name')
+        for class_name in classification_names:
+            if col_name.startswith(class_name):
+                # Only consider non-None probabilities for decision making
+                if probability is not None:
+                    # Extract the specific class name from the column name
+                    specific_class_name = col_name[len(class_name) + 1:].replace('_', ' ')
+                    grouped_probs[class_name].append((specific_class_name, probability))
+                break
+
+    # Apply the assignment logic for each classification type
+    for class_name, probs_list in grouped_probs.items():
+        chosen_col_name = f"{class_name}_chosen"
+        
+        # Filter for probabilities >= 0.5
+        high_confidence_probs = [
+            (cname, prob) for cname, prob in probs_list if prob >= 0.5
+        ]
+        
+        if high_confidence_probs:
+            # If any class has >= 0.5, pick the one with the highest probability
+            # The key for max is the probability value (item[1])
+            highest_class, _ = max(high_confidence_probs, key=lambda item: item[1])
+            chosen_classes[chosen_col_name] = highest_class
+        else:
+            # Otherwise, auto-assign 'other'
+            chosen_classes[chosen_col_name] = 'other'
+            
+    return chosen_classes
 
 def load_classification_criteria(yml_file: str) -> Dict:
     with open(yml_file, 'r') as file:
@@ -161,7 +194,7 @@ def parse_results(
     """
     Parses the structured JSON results from the LLMs and adds the probability
     decision for each classification as new columns in the DataFrame, placing
-    them *before* the original columns.
+    them *before* the original columns, and adds the newly assigned chosen class.
 
     Args:
         prompts: The list of prompts generated for the LLMs.
@@ -178,6 +211,10 @@ def parse_results(
     classification_data = []
     
     n_papers = len(df)
+    
+    # Get a set of base classification names for use in assign_chosen_class_per_paper
+    classification_names = {c["name"].replace(" ", "_").replace("-", "_") for c in criteria["Classifications"]}
+    
     classes_per_paper = sum(len(c["classes"]) for c in criteria["Classifications"])
     
     expected_prompt_count = n_papers * classes_per_paper
@@ -194,6 +231,7 @@ def parse_results(
         for classification in criteria["Classifications"]:
             classification_name = classification["name"]
             for class_name in classification["classes"]:
+                # Column name for the probability score
                 col_name = f"{classification_name}_{class_name}".replace(" ", "_").replace("-", "_")
                 
                 result = paper_results[res_idx]
@@ -215,13 +253,20 @@ def parse_results(
                 paper_results_dict[col_name] = probability
                 res_idx += 1
 
-        classification_data.append(paper_results_dict)
+        # --- NEW FEATURE: Assign the chosen class ---
+        chosen_classes_dict = assign_chosen_class_per_paper(paper_results_dict, classification_names)
+        
+        # Merge probability and chosen class results
+        final_paper_results = {**chosen_classes_dict, **paper_results_dict}
+        classification_data.append(final_paper_results)
+        # --- END NEW FEATURE ---
+
 
     # Convert the list of dictionaries to a DataFrame
     classification_df = pd.DataFrame(classification_data)
     
-    # --- CRITICAL CHANGE HERE ---
-    # Concatenate the new classification columns *before* the original DataFrame.
+    # Concatenate the new classification columns (*including the chosen class columns*) 
+    # *before* the original DataFrame.
     # We put 'classification_df' first in the list passed to pd.concat.
     df = pd.concat([classification_df.reset_index(drop=True), df.reset_index(drop=True)], axis=1)
     
