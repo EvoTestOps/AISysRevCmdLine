@@ -176,8 +176,10 @@ async def call_openrouter_async(
     max_retries: int = 3,
 ) -> Optional[Dict]:
     url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
+    headers = {"Authorization": f"Bearer {api_key}", 
+    "Content-Type": "application/json",
+    "X-Title": "AISysRev",           
+    "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev"}        
    # Determine schema based on model name
     if model.startswith("openai/"):
         schema = to_strict_json_schema(StructuredResponse)

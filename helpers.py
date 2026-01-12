@@ -9,6 +9,9 @@ import sys
 import pandas as pd
 from typing import Set, Optional, List
 import os
+import requests
+import time
+
 
 def load_api_key(key_path: str) -> str:
     try:
@@ -56,6 +59,65 @@ def detect_delimiter(file_path: str) -> str:
         return ';'
     else:
         return ','  # default
+
+
+def validate_doi_csv(file_path: str, n_rows: int = None) -> pd.DataFrame:
+    """
+    Validates a CSV for the presence of a 'doi' column and issues warnings 
+    if empty DOI values are found.
+    """
+    delimiter = detect_delimiter(file_path)
+    required_columns = {'doi'}
+    header_row_index = -1
+    
+    # 1. Search for the header row (scanning first 20 rows)
+    max_matches = -1
+    best_missing_columns: Set[str] = required_columns.copy()
+
+    with open(file_path, 'r') as f:
+        reader = csv.reader(f, delimiter=delimiter)
+        for i, row in enumerate(reader):
+            if i >= 20:
+                break
+            
+            headers = [h.strip().lower() for h in row]
+            present_columns = required_columns.intersection(set(headers))
+            num_matches = len(present_columns)
+            current_missing_columns = required_columns - present_columns
+
+            if not current_missing_columns:
+                header_row_index = i
+                break
+            
+            if num_matches > max_matches:
+                max_matches = num_matches
+                best_missing_columns = current_missing_columns
+
+        if header_row_index == -1:
+            sys.exit(f"Error: Could not find a valid header row containing 'doi'.")
+
+    # 2. Duplicate Check
+    with open(file_path, 'r') as f:
+        reader = csv.reader(f, delimiter=delimiter)
+        for _ in range(header_row_index):
+            next(reader)
+        headers = [h.strip().lower() for h in next(reader)]
+        if headers.count('doi') > 1:
+            sys.exit(f"Error: Duplicate 'doi' column detected.")
+
+    # 3. Load DataFrame
+    df = pd.read_csv(file_path, delimiter=delimiter, header=header_row_index, nrows=n_rows)
+    df.columns = df.columns.str.strip().str.lower()
+
+    # 4. Warning for empty DOIs
+    # Check for NaN, null, or whitespace-only strings
+    empty_doi_mask = df['doi'].isna() | (df['doi'].astype(str).str.strip() == '')
+    empty_doi_count = empty_doi_mask.sum()
+    
+    if empty_doi_count > 0:
+        print(f"WARN: {empty_doi_count} DOI entries are empty.")
+
+    return df
 
 def validate_csv(file_path: str, n_rows: int = None, require_avg_prob: float = None) -> pd.DataFrame:
     delimiter = detect_delimiter(file_path)
@@ -142,3 +204,56 @@ def validate_csv(file_path: str, n_rows: int = None, require_avg_prob: float = N
         df = df[df['average_probability'] >= require_avg_prob]
 
     return df
+
+
+
+
+def download_pdfs_by_doi(doi_list: list, output_folder: str = "pdf"):
+    """
+    Downloads PDFs from a list of DOIs and saves them to a folder.
+    Replaces '/' with '_' in filenames to ensure they are valid.
+    """
+    # Create the folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        print(f"Created folder: {output_folder}")
+
+    # Headers to mimic a browser (some repositories block basic python scripts)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+
+    for doi in doi_list:
+        if not doi or pd.isna(doi):
+            continue
+
+        # Clean filename: replace '/' with '_' to avoid path errors
+        clean_filename = doi.replace('/', '_') + ".pdf"
+        file_path = os.path.join(output_folder, clean_filename)
+
+        # Skip if file already exists
+        if os.path.exists(file_path):
+            print(f"Skipping: {doi} (Already exists)")
+            continue
+
+        # Construct the download URL (using sci-hub or a specific resolver)
+        # Note: DOI links usually go to landing pages; 
+        # actual PDF extraction often requires a specific API or Sci-Hub URL.
+        download_url = f"https://doi.org/{doi}" 
+
+        try:
+            print(f"Downloading: {doi}...", end="\r")
+            response = requests.get(download_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200 and 'application/pdf' in response.headers.get('Content-Type', ''):
+                with open(file_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"Saved: {clean_filename}         ")
+            else:
+                print(f"Failed: {doi} (Not a direct PDF link or access denied)")
+                
+        except Exception as e:
+            print(f"Error downloading {doi}: {e}")
+        
+        # Polite delay to avoid rate-limiting
+        time.sleep(1)
