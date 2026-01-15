@@ -1,9 +1,9 @@
 import pytest
 import pandas as pd
-import os
 from screen import validate_csv
 
 TEST_DIR = "tests/test_csv_files"
+
 
 def test_validate_csv_normal():
     """Test that normal.csv passes validation and issues warnings for empty fields."""
@@ -12,11 +12,13 @@ def test_validate_csv_normal():
     # If you want to check warnings, you can capture stdout in pytest
     # (see below for an example using capsys)
 
+
 def test_validate_csv_missing_title():
     """Test that missing_title.csv raises an error for missing 'title' column."""
     with pytest.raises(SystemExit) as e:
         validate_csv(f"{TEST_DIR}/missing_title.csv")
     assert "Error: Missing required columns: {'title'}" in str(e.value)
+
 
 def test_validate_csv_missing_abstract():
     """Test that missing_abstract.csv raises an error for missing 'abstract' column."""
@@ -24,11 +26,13 @@ def test_validate_csv_missing_abstract():
         validate_csv(f"{TEST_DIR}/missing_abstract.csv")
     assert "Error: Missing required columns: {'abstract'}" in str(e.value)
 
+
 def test_validate_csv_duplicate_title():
     """Test that duplicate_title.csv raises an error for duplicate 'title' column."""
     with pytest.raises(SystemExit) as e:
         validate_csv(f"{TEST_DIR}/duplicate_title.csv")
     assert "Error: Duplicate column detected: title" in str(e.value)
+
 
 def test_validate_csv_duplicate_abstract():
     """Test that duplicate_abstract.csv raises an error for duplicate 'abstract' column."""
@@ -36,26 +40,31 @@ def test_validate_csv_duplicate_abstract():
         validate_csv(f"{TEST_DIR}/duplicate_abstract.csv")
     assert "Error: Duplicate column detected: abstract" in str(e.value)
 
+
 def test_validate_csv_empty_file():
     """Test that empty_file.csv passes validation (only headers)."""
     df = validate_csv(f"{TEST_DIR}/empty_file.csv")
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 0
 
+
 def test_validate_csv_comma_delimited():
     """Test that comma_delimited.csv passes validation."""
     df = validate_csv(f"{TEST_DIR}/comma_delimited.csv")
     assert isinstance(df, pd.DataFrame)
+
 
 def test_validate_csv_semicolon_delimited():
     """Test that semicolon_delimited.csv passes validation."""
     df = validate_csv(f"{TEST_DIR}/semicolon_delimited.csv")
     assert isinstance(df, pd.DataFrame)
 
+
 def test_validate_csv_whitespace_headers():
     """Test that whitespace_headers.csv passes validation."""
     df = validate_csv(f"{TEST_DIR}/whitespace_headers.csv")
     assert isinstance(df, pd.DataFrame)
+
 
 # Optional: If you want to check warnings (e.g., empty titles/abstracts)
 def test_validate_csv_warnings(capsys):

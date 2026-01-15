@@ -5,18 +5,44 @@
 
 import asyncio
 import csv
+import logging
 import sys
+import httpx
 import pandas as pd
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from pydantic import BaseModel, Field as PydanticField
 from enum import Enum
 from pydantic_ai.output import ToolOutput
 from tqdm.asyncio import tqdm_asyncio
+from httpx import AsyncClient, HTTPStatusError, Response
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from pydantic_ai import Agent
+from pydantic_ai.models.openrouter import (
+    OpenRouterModel,
+    OpenRouterModelSettings,
+)
+from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+logging.getLogger().handlers.clear()
+
+root = logging.getLogger()
+root.setLevel(logging.INFO)
+fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+file_handler = logging.FileHandler("app.log", mode="w", encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(fmt)
+console_handler = logging.StreamHandler(sys.stderr)
+console_handler.setLevel(logging.ERROR)
+console_handler.setFormatter(fmt)
+root.addHandler(file_handler)
+root.addHandler(console_handler)
+
+logger = logging.getLogger(__name__)
 
 
-# --- Pydantic Models and Enums ---
 class LikertDecision(str, Enum):
     stronglyDisagree = "1"
     disagree = "2"
@@ -72,6 +98,58 @@ def detect_delimiter(file_path: str) -> str:
         return ","  # default
 
 
+max_wait_seconds = 300
+RETRYABLE_STATUSES: set[int] = {429, 502, 503, 504}
+
+
+async def log_response(response: Response) -> None:
+    # event hook for AsyncClient should be async
+    if response.status_code in RETRYABLE_STATUSES:
+        logger.error(
+            "Retryable status %s for %s %s",
+            response.status_code,
+            response.request.method,
+            str(response.request.url),
+        )
+
+
+# https://ai.pydantic.dev/retries/#installation
+def create_retrying_client(
+    *,
+    max_wait_seconds: float = 60,
+    max_attempts: int = 3,
+    retryable_statuses: Iterable[int] = RETRYABLE_STATUSES,
+    timeout: httpx.Timeout | None = httpx.Timeout(10.0),
+):
+    retryable = set(retryable_statuses)
+
+    def validate_response(response: Response) -> None:
+        # Raise only for statuses we want to trigger retry logic
+        if response.status_code in retryable:
+            response.raise_for_status()
+
+    transport = AsyncTenacityTransport(
+        config=RetryConfig(
+            retry=retry_if_exception_type((HTTPStatusError, ConnectionError)),
+            wait=wait_retry_after(
+                fallback_strategy=wait_exponential(multiplier=1, max=60),
+                max_wait=max_wait_seconds,
+            ),
+            stop=stop_after_attempt(max_attempts),
+            reraise=True,
+        ),
+        validate_response=validate_response,
+    )
+    return AsyncClient(
+        transport=transport,
+        timeout=timeout,
+        event_hooks={"response": [log_response]},
+    )
+
+
+client = create_retrying_client()
+
+
 def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
     delimiter = detect_delimiter(file_path)
     required_columns = {"title", "abstract"}
@@ -86,6 +164,9 @@ def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
                 header_row_index = i
                 break
     if header_row_index == -1:
+        logger.error(
+            "Error: Required columns (title, abstract) not found in the first 20 rows."
+        )
         sys.exit(
             "Error: Required columns (title, abstract) not found in the first 20 rows."
         )
@@ -98,6 +179,7 @@ def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
         for col in headers:
             column_counts[col] = column_counts.get(col, 0) + 1
             if column_counts[col] > 1 and col in required_columns:
+                logger.error(f"Error: Duplicate column detected: {col}")
                 sys.exit(f"Error: Duplicate column detected: {col}")
         empty_title = 0
         empty_abstract = 0
@@ -107,8 +189,10 @@ def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
             if not row[headers.index("abstract")].strip():
                 empty_abstract += 1
         if empty_title > 0:
+            logger.warning(f"WARN: {empty_title} titles are empty.")
             print(f"WARN: {empty_title} titles are empty.")
         if empty_abstract > 0:
+            logger.warning(f"WARN: {empty_abstract} abstracts are empty.")
             print(f"WARN: {empty_abstract} abstracts are empty.")
     df = pd.read_csv(
         file_path, delimiter=delimiter, header=header_row_index, nrows=n_rows
@@ -122,9 +206,11 @@ def load_api_key(key_path: str) -> str:
         with open(os.path.expanduser(key_path), "r") as file:
             api_key = file.read().strip()
         if not api_key:
+            logger.error("Error: OpenRouter API key file is empty.")
             sys.exit("Error: OpenRouter API key file is empty.")
         return api_key
     except FileNotFoundError:
+        logger.error(f"Error: OpenRouter API key file not found at {key_path}")
         sys.exit(f"Error: OpenRouter API key file not found at {key_path}")
 
 
@@ -178,6 +264,7 @@ def generate_output_filename(input_filename: str, model_keys: List[str]) -> str:
 
 def save_enriched_csv(df: pd.DataFrame, output_file: str) -> None:
     df.to_csv(output_file, index=False)
+    logger.info(f"\nEnriched data saved to {output_file}")
     print(f"\nEnriched data saved to {output_file}")
 
 
@@ -196,56 +283,50 @@ def flatten_nested_json(
     return flattened
 
 
-# --- Async API Functions ---
+system_prompt = "You are an expert research assistant."
+
+
 async def call_openrouter_async(
     prompt: str,
     model_name: str,
     api_key: str,
     semaphore: asyncio.Semaphore,
     max_retries: int = 3,
+    max_output_retries: int = 5,
 ) -> Optional[StructuredResponse]:
     async with semaphore:
-        for attempt in range(max_retries):
-            try:
-                from pydantic_ai import Agent
-                from pydantic_ai.models.openrouter import (
-                    OpenRouterModel,
-                    OpenRouterModelSettings,
-                )
-                from pydantic_ai.providers.openrouter import OpenRouterProvider
-
-                settings = OpenRouterModelSettings(
-                    openrouter_provider={
-                        "require_parameters": True,
-                        "data_collection": "deny",
-                    },
-                    extra_headers={
-                        "X-Title": "AISysRev",
-                        "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
-                    },
-                    # By default we fix temperature and top_p
-                    temperature=0,
-                    top_p=0.1,
-                )
-                model = OpenRouterModel(
-                    model_name,
-                    provider=OpenRouterProvider(api_key=api_key),
-                    settings=settings,
-                )
-                agent = Agent(
-                    model,
-                    system_prompt="You are an expert research assistant.",
-                    retries=max_retries,
-                    output_type=ToolOutput(
-                        StructuredResponse, name="structured_response"
-                    ),
-                )
-                result = await agent.run(prompt)
-                return result.output
-            except Exception as e:
-                print(f"LLM call failed for model {model_name}: {e}")
-                await asyncio.sleep(2 ** (attempt + 2))
-        return None
+        try:
+            settings = OpenRouterModelSettings(
+                openrouter_provider={
+                    "require_parameters": True,
+                    "data_collection": "deny",
+                },
+                extra_headers={
+                    "X-Title": "AISysRev",
+                    "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
+                },
+                # By default we fix temperature and top_p
+                temperature=0,
+                top_p=0.1,
+            )
+            model = OpenRouterModel(
+                model_name,
+                provider=OpenRouterProvider(api_key=api_key, http_client=client),
+                settings=settings,
+            )
+            agent = Agent(
+                model,
+                system_prompt=system_prompt,
+                retries=max_retries,
+                output_retries=max_output_retries,
+                output_type=ToolOutput(StructuredResponse, name="structured_response"),
+            )
+            result = await agent.run(prompt)
+            return result.output
+        except Exception as e:
+            logger.error(f"LLM call failed for model {model_name}: {e}")
+            print(f"LLM call failed for model {model_name}: {e}")
+    return None
 
 
 async def process_prompts_for_model(
@@ -267,6 +348,9 @@ async def process_all_models(
     api_key: str,
     max_concurrent_per_model: int = 20,
 ) -> Tuple[List[List[Optional[StructuredResponse]]], List[str]]:
+    logger.info(
+        f"Processing {len(models)} models with {max_concurrent_per_model} concurrent prompts per model..."
+    )
     print(
         f"Processing {len(models)} models with {max_concurrent_per_model} concurrent prompts per model..."
     )
@@ -288,6 +372,7 @@ def run_nested_async_processing(
     stats = {}
     for model_idx, model in enumerate(models):
         unique_key = model_keys[model_idx]
+        logger.info(f"\nMerging results for model: {unique_key}")
         print(f"\nMerging results for model: {unique_key}")
         results = model_results[model_idx]
         successes = 0
@@ -304,6 +389,9 @@ def run_nested_async_processing(
                         df.at[i, col_name] = value
                     successes += 1
                 except json.JSONDecodeError as e:
+                    logger.error(
+                        f"Failed to parse JSON for row {i} (model {unique_key}): {e}, first 20 characters of response: ~ {result}"
+                    )
                     print(
                         f"\nFailed to parse JSON for row {i} (model {unique_key}): {e}, first 20 characters of response: ~ {result}"
                     )
@@ -313,6 +401,9 @@ def run_nested_async_processing(
                     df.at[i, col_name] = f"Failed to parse JSON: {e}"
                     failures += 1
                 except Exception as e:
+                    logger.error(
+                        f"Failed to validate response for row {i} (model {unique_key}): {e}"
+                    )
                     print(
                         f"\nFailed to validate response for row {i} (model {unique_key}): {e}"
                     )
@@ -377,11 +468,14 @@ if __name__ == "__main__":
     with open("json_instruction_prompt.txt", "r") as file:
         additional_instructions = file.read()
     additional_instructions = ""
+    logger.info("Validating CSV file")
     print("Validating CSV file:")
     df = validate_csv(csv_file, n_rows=n_rows)
+    logger.info(f"In total {len(df)} articles.")
     print(f"In total {len(df)} articles.")
     print(f"Criteria:\n ------------------\n {criteria[:300]}... \n ------------------")
     print("Generating prompts:")
+    logger.info("Generating prompts")
     prompts = generate_prompts(df, criteria, additional_instructions)
     enriched_df, stats, model_keys = run_nested_async_processing(
         df, prompts, models, api_key
@@ -390,5 +484,7 @@ if __name__ == "__main__":
     output_file = generate_output_filename(csv_file, model_keys)
     save_enriched_csv(enriched_df, output_file)
     print("\nModel statistics:")
+    logger.info("Model statistics")
     for model_key, (success, failure) in stats.items():
         print(f"{model_key}: {success} successes, {failure} failures")
+        logger.info(f"{model_key}: {success} successes, {failure} failures")

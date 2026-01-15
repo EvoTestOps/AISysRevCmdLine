@@ -18,6 +18,7 @@ criteria_embed.md
 # Output files
 *_LLMs_*.csv
 
-
+# Log file
+app.log
 
 

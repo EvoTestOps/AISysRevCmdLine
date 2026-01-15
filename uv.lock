@@ -97,6 +97,7 @@ dependencies = [
     { name = "plotly" },
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "pydantic-ai-slim", extra = ["retries"] },
     { name = "pytest" },
     { name = "tqdm" },
 ]
@@ -109,6 +110,7 @@ requires-dist = [
     { name = "plotly", specifier = ">=6.5.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-ai", specifier = ">=1.41.0" },
+    { name = "pydantic-ai-slim", extras = ["retries"], specifier = ">=1.41.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
