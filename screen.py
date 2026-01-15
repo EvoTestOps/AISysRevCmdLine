@@ -26,12 +26,12 @@ from pydantic_ai.models.openrouter import (
 )
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
-logging.getLogger().handlers.clear()  # important if something configured logging earlier
+logging.getLogger().handlers.clear()
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-file_handler = logging.FileHandler("app.log", mode="a", encoding="utf-8")
+file_handler = logging.FileHandler("app.log", mode="w", encoding="utf-8")
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(fmt)
 console_handler = logging.StreamHandler(sys.stderr)
@@ -43,7 +43,6 @@ root.addHandler(console_handler)
 logger = logging.getLogger(__name__)
 
 
-# --- Pydantic Models and Enums ---
 class LikertDecision(str, Enum):
     stronglyDisagree = "1"
     disagree = "2"
@@ -125,7 +124,7 @@ def create_retrying_client(
     retryable = set(retryable_statuses)
 
     def validate_response(response: Response) -> None:
-        # Raise only for statuses you want to trigger retry logic
+        # Raise only for statuses we want to trigger retry logic
         if response.status_code in retryable:
             response.raise_for_status()
 
@@ -284,50 +283,50 @@ def flatten_nested_json(
     return flattened
 
 
-# --- Async API Functions ---
+system_prompt = "You are an expert research assistant."
+
+
 async def call_openrouter_async(
     prompt: str,
     model_name: str,
     api_key: str,
     semaphore: asyncio.Semaphore,
     max_retries: int = 3,
+    max_output_retries: int = 5,
 ) -> Optional[StructuredResponse]:
     async with semaphore:
-        for attempt in range(max_retries):
-            try:
-                settings = OpenRouterModelSettings(
-                    openrouter_provider={
-                        "require_parameters": True,
-                        "data_collection": "deny",
-                    },
-                    extra_headers={
-                        "X-Title": "AISysRev",
-                        "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
-                    },
-                    # By default we fix temperature and top_p
-                    temperature=0,
-                    top_p=0.1,
-                )
-                model = OpenRouterModel(
-                    model_name,
-                    provider=OpenRouterProvider(api_key=api_key, http_client=client),
-                    settings=settings,
-                )
-                agent = Agent(
-                    model,
-                    system_prompt="You are an expert research assistant.",
-                    retries=max_retries,
-                    output_type=ToolOutput(
-                        StructuredResponse, name="structured_response"
-                    ),
-                )
-                result = await agent.run(prompt)
-                return result.output
-            except Exception as e:
-                logger.error(f"LLM call failed for model {model_name}: {e}")
-                print(f"LLM call failed for model {model_name}: {e}")
-                await asyncio.sleep(2 ** (attempt + 2))
-        return None
+        try:
+            settings = OpenRouterModelSettings(
+                openrouter_provider={
+                    "require_parameters": True,
+                    "data_collection": "deny",
+                },
+                extra_headers={
+                    "X-Title": "AISysRev",
+                    "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
+                },
+                # By default we fix temperature and top_p
+                temperature=0,
+                top_p=0.1,
+            )
+            model = OpenRouterModel(
+                model_name,
+                provider=OpenRouterProvider(api_key=api_key, http_client=client),
+                settings=settings,
+            )
+            agent = Agent(
+                model,
+                system_prompt=system_prompt,
+                retries=max_retries,
+                output_retries=max_output_retries,
+                output_type=ToolOutput(StructuredResponse, name="structured_response"),
+            )
+            result = await agent.run(prompt)
+            return result.output
+        except Exception as e:
+            logger.error(f"LLM call failed for model {model_name}: {e}")
+            print(f"LLM call failed for model {model_name}: {e}")
+    return None
 
 
 async def process_prompts_for_model(
