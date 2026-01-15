@@ -7,7 +7,7 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 ---
 ## Features
-- **Structured LLM Responses:** Uses Pydantic models to enforce structured JSON output from LLMs.
+- **Structured LLM Responses:** Uses Pydantic AI to enforce structured JSON output from LLMs.
 - **Concurrent API Calls:** Efficiently processes multiple articles and models in parallel
 - **Model selection:** Copy the example file and adjust models you want to run from OpenRouter your settings:
   ```bash
@@ -22,7 +22,7 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 After customizing as shown above, you can run it
 ```bash
-python screen.py <csv_file_with_columns_named_title_and_abstract> all
+uv run screen.py <csv_file_with_columns_named_title_and_abstract> all
 ```
 Then you see output like this:
 <img width="2142" height="226" alt="{8BA04E17-0F83-4531-AB75-69C66F3F4E29}" src="https://github.com/user-attachments/assets/fad9c8a5-e24b-4716-989c-a74173b8f3eb" />
