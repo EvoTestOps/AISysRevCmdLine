@@ -14,6 +14,15 @@ from pydantic import BaseModel, Field as PydanticField
 from enum import Enum
 from pydantic_ai.output import ToolOutput
 from tqdm.asyncio import tqdm_asyncio
+from httpx import AsyncClient, HTTPStatusError
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from pydantic_ai import Agent
+from pydantic_ai.models.openrouter import (
+    OpenRouterModel,
+    OpenRouterModelSettings,
+)
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 
 # --- Pydantic Models and Enums ---
@@ -70,6 +79,33 @@ def detect_delimiter(file_path: str) -> str:
         return ";"
     else:
         return ","  # default
+
+
+max_wait_seconds = 300
+
+
+# https://ai.pydantic.dev/retries/#installation
+def create_retrying_client():
+    def should_retry_status(response):
+        if response.status_code in (429, 502, 503, 504):
+            response.raise_for_status()
+
+    transport = AsyncTenacityTransport(
+        config=RetryConfig(
+            retry=retry_if_exception_type((HTTPStatusError, ConnectionError)),
+            wait=wait_retry_after(
+                fallback_strategy=wait_exponential(multiplier=1, max=60),
+                max_wait=max_wait_seconds,
+            ),
+            stop=stop_after_attempt(3),
+            reraise=True,
+        ),
+        validate_response=should_retry_status,
+    )
+    return AsyncClient(transport=transport)
+
+
+client = create_retrying_client()
 
 
 def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
@@ -207,13 +243,6 @@ async def call_openrouter_async(
     async with semaphore:
         for attempt in range(max_retries):
             try:
-                from pydantic_ai import Agent
-                from pydantic_ai.models.openrouter import (
-                    OpenRouterModel,
-                    OpenRouterModelSettings,
-                )
-                from pydantic_ai.providers.openrouter import OpenRouterProvider
-
                 settings = OpenRouterModelSettings(
                     openrouter_provider={
                         "require_parameters": True,
@@ -229,7 +258,7 @@ async def call_openrouter_async(
                 )
                 model = OpenRouterModel(
                     model_name,
-                    provider=OpenRouterProvider(api_key=api_key),
+                    provider=OpenRouterProvider(api_key=api_key, http_client=client),
                     settings=settings,
                 )
                 agent = Agent(
