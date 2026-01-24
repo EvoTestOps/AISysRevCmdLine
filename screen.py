@@ -2,7 +2,7 @@
 # https://arxiv.org/abs/2507.19027
 # TODO might want to consider removing binary and Likert decision as they cost money and at least Mika is not using them for anything.
 # Probability decision is enough and can always be convertedy to binary or Likert later if needed. Well likert might be a bit tricky to convert from probability.
-
+import argparse
 import asyncio
 import csv
 import logging
@@ -18,6 +18,7 @@ from pydantic_ai.output import ToolOutput
 from tqdm.asyncio import tqdm_asyncio
 from httpx import AsyncClient, HTTPStatusError, Response
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+from pathlib import Path
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
 from pydantic_ai import Agent
 from pydantic_ai.models.openrouter import (
@@ -251,15 +252,28 @@ def generate_prompts(
     return prompts
 
 
-def generate_output_filename(input_filename: str, model_keys: List[str]) -> str:
-    base, ext = os.path.splitext(input_filename)
-    models_str = "_".join(m.replace("/", "-") for m in model_keys)
-    output_filename = f"{base}_LLMs_{models_str}{ext}"
+def generate_output_filename(input_csv: str, criteria_path: str, models_path: str) -> str:
+    # 1. Identify the input folder
+    input_path = Path(input_csv)
+    input_dir = input_path.parent
+    
+    # 2. Extract stems for naming
+    csv_stem = input_path.stem
+    c_stem = Path(criteria_path).stem
+    m_stem = Path(models_path).stem
+    
+    # 3. Combine into base format
+    base_name = f"{csv_stem}_{c_stem}_{m_stem}"
+    
+    # 4. Check for existing files in that specific directory
+    output_path = input_dir / f"{base_name}.csv"
+    
     counter = 1
-    while os.path.exists(output_filename):
-        output_filename = f"{base}_LLMs_{models_str}_{counter:02d}{ext}"
+    while output_path.exists():
+        output_path = input_dir / f"{base_name}_{counter:02d}.csv"
         counter += 1
-    return output_filename
+        
+    return str(output_path)
 
 
 def save_enriched_csv(df: pd.DataFrame, output_file: str) -> None:
@@ -274,13 +288,43 @@ def flatten_nested_json(
     flattened = {}
     for key, value in nested_dict.items():
         new_key = f"{parent_key}{sep}{key}" if parent_key else key
+        
         if isinstance(value, dict):
+            # Recursively flatten dictionaries
             flattened.update(flatten_nested_json(value, new_key, sep))
+            
         elif isinstance(value, list):
-            flattened[new_key] = json.dumps(value)
+            # Special handling for criteria lists to avoid raw JSON strings
+            for item in value:
+                if isinstance(item, dict) and "name" in item:
+                    # Use the criterion name (e.g., IC1) as part of the key
+                    criterion_id = item["name"]
+                    criterion_data = item.get("decision", {})
+                    # Flatten the decision object under the criterion ID
+                    crit_flattened = flatten_nested_json(
+                        criterion_data, f"{new_key}{sep}{criterion_id}", sep
+                    )
+                    flattened.update(crit_flattened)
+                else:
+                    # Fallback for other lists
+                    flattened[new_key] = json.dumps(value)
         else:
             flattened[new_key] = value
     return flattened
+
+# def flatten_nested_json(
+#     nested_dict: Dict, parent_key: str = "", sep: str = "_"
+# ) -> Dict:
+#     flattened = {}
+#     for key, value in nested_dict.items():
+#         new_key = f"{parent_key}{sep}{key}" if parent_key else key
+#         if isinstance(value, dict):
+#             flattened.update(flatten_nested_json(value, new_key, sep))
+#         elif isinstance(value, list):
+#             flattened[new_key] = json.dumps(value)
+#         else:
+#             flattened[new_key] = value
+#     return flattened
 
 
 system_prompt = "You are an expert research assistant."
@@ -333,7 +377,7 @@ async def process_prompts_for_model(
     prompts: List[str],
     model: str,
     api_key: str,
-    max_concurrent_per_model: int = 20,
+    max_concurrent_per_model: int = 10,
 ) -> List[Optional[StructuredResponse]]:
     semaphore = asyncio.Semaphore(max_concurrent_per_model)
     tasks = [
@@ -453,24 +497,40 @@ def add_average_probability(df: pd.DataFrame, model_keys: List[str]) -> pd.DataF
 
 # --- Main ---
 if __name__ == "__main__":
-    if len(sys.argv) not in (2, 3):
-        sys.exit("Usage: python screen_test.py <csv_file> [n_rows]")
-    csv_file = sys.argv[1]
-    n_rows_arg = sys.argv[2] if len(sys.argv) == 3 else "10"
-    # If "all" is passed, set n_rows to None (or a very large number)
-    n_rows = None if n_rows_arg.lower() == "all" else int(n_rows_arg)
+    parser = argparse.ArgumentParser(description="Screen papers based on title and abstract using LLMs.")
+    
+    parser.add_argument("csv_file", help="Path to the input CSV file.")
+    parser.add_argument("-n", "--n_rows", default="10", 
+                        help="Number of rows to process (default: 10). Use 'all' for the entire file.")
+    parser.add_argument("-c", "--criteria", default="criteria.md", 
+                        help="Path to the criteria markdown file (default: criteria.md)")
+    parser.add_argument("-m", "--models", default="models.md", 
+                        help="Path to the models list file (default: models.md)")
+    args = parser.parse_args()
+
+    # Logic for n_rows: Convert to int unless it's "all"
+    n_rows = None if args.n_rows.lower() == "all" else int(args.n_rows)
+    
+    # Load configuration files
     api_key = load_api_key("~/openrouter.key")
-    models = load_models("models.md")
-    with open("criteria.md", "r") as file:
-        criteria = "".join(
-            line for line in file if not line.strip().startswith("#")
-        ).strip()
-    with open("json_instruction_prompt.txt", "r") as file:
-        additional_instructions = file.read()
+    models = load_models(args.models)
+    
+    # Load Criteria
+    try:
+        with open(args.criteria, "r") as file:
+            criteria = "".join(
+                line for line in file if not line.strip().startswith("#")
+            ).strip()
+    except FileNotFoundError:
+        sys.exit(f"Error: Criteria file '{args.criteria}' not found.")
+
+    # Load additional instructions if file exists
     additional_instructions = ""
     logger.info("Validating CSV file")
-    print("Validating CSV file:")
-    df = validate_csv(csv_file, n_rows=n_rows)
+    print(f"Config: Rows={args.n_rows}, Criteria={args.criteria}, Models={args.models}")
+    
+    df = validate_csv(args.csv_file, n_rows=n_rows)
+    
     logger.info(f"In total {len(df)} articles.")
     print(f"In total {len(df)} articles.")
     print(f"Criteria:\n ------------------\n {criteria[:300]}... \n ------------------")
@@ -481,10 +541,8 @@ if __name__ == "__main__":
         df, prompts, models, api_key
     )
     enriched_df = add_average_probability(enriched_df, model_keys)
-    output_file = generate_output_filename(csv_file, model_keys)
+    output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(enriched_df, output_file)
     print("\nModel statistics:")
-    logger.info("Model statistics")
     for model_key, (success, failure) in stats.items():
         print(f"{model_key}: {success} successes, {failure} failures")
-        logger.info(f"{model_key}: {success} successes, {failure} failures")

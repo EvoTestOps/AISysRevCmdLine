@@ -6,6 +6,7 @@ data/
 
 openrouter.key
 
+*.egg-info/
 
 # Local configuration files
 models.md
