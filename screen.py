@@ -11,8 +11,9 @@ import httpx
 import pandas as pd
 import json
 import os
+import re
 from typing import Dict, Iterable, List, Optional, Tuple
-from pydantic import BaseModel, Field as PydanticField
+from pydantic import BaseModel, field_validator, Field as PydanticField
 from enum import Enum
 from pydantic_ai.output import ToolOutput
 from tqdm.asyncio import tqdm_asyncio
@@ -66,13 +67,30 @@ class Decision(BaseModel, extra="forbid"):
     )
     reason: str = PydanticField(description="Reason for the decision.")
 
-
 class Criterion(BaseModel, extra="forbid"):
     name: str = PydanticField(
-        description="Criterion ID. E.g. IC1, IC2, IC3 etc.. for inclusion criteria or EC1, EC2, EC3 etc.. for exclusion criteria"
+        description="Criterion ID. E.g. IC1, EC1. Do NOT include description text."
     )
     decision: Decision = PydanticField(description="Decision for the criterion.")
 
+    @field_validator('name', mode='before')
+    @classmethod
+    def normalize_id(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return str(v)
+            
+        # 1. Extract the basic parts: (Letter I or E) and (Digits)
+        # This ignores any 'C' in the middle and any trailing text
+        match = re.search(r'([IE])(?:C)?(\d+)', v, re.IGNORECASE)
+        
+        if match:
+            prefix = match.group(1).upper() # 'I' or 'E'
+            number = match.group(2)         # '1', '2', etc.
+            # 2. FORCE the format to 'IC' or 'EC'
+            # To use the short format (I1), change this to: return f"{prefix}{number}"
+            return f"{prefix}C{number}" 
+            
+        return v.strip().replace(" ", "_")
 
 class BinaryDecision(str, Enum):
     include = "Include"
