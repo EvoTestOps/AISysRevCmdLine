@@ -22,7 +22,11 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 After customizing as shown above, you can run it
 ```bash
-uv run screen.py <csv_file_with_columns_named_title_and_abstract> all
+uv run screen.py <csv_file_with_columns_named_title_and_abstract> -n all
+```
+You can also customize input files. 
+```bash 
+uv run screen.py <csv_file_with_columns_named_title_and_abstract> -n <number of papers> -c <criteria_file> -m <models_file>
 ```
 Then you see output like this:
 <img width="2142" height="226" alt="{8BA04E17-0F83-4531-AB75-69C66F3F4E29}" src="https://github.com/user-attachments/assets/fad9c8a5-e24b-4716-989c-a74173b8f3eb" />
