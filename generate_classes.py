@@ -108,7 +108,7 @@ def main():
     args = parser.parse_args()
 
     api_key = load_api_key("~/openrouter.key")
-    models = load_models("models_generate_classes.md")
+    models = load_models("models_generate_classes.conf")
 
     # Parse -n
     if args.n.lower() == "all":
@@ -129,7 +129,7 @@ def main():
     print(f"Processing {n_papers} papers.")
     # Continue with your processing logic here
 
-    with open("prompt_generate_classes.md", "r") as file:
+    with open("prompt_generate_classes.conf", "r") as file:
         prompt_template = file.read()
 
     studies = []

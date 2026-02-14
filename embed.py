@@ -87,21 +87,21 @@ async def process_texts_for_embedding(
 
 def generate_prompts(df: pd.DataFrame) -> List[str]:
     """
-    Generates a list of strings (texts) to be embedded using the 'criteria_embed.md' prefix.
+    Generates a list of strings (texts) to be embedded using the 'criteria_embed.conf' prefix.
     """
     inputs = []
 
     prompt_prefix = ""
     try:
         # NOTE: This file is assumed to exist in the same run directory
-        with open("criteria_embed.md", "r") as file:
+        with open("criteria_embed.conf", "r") as file:
             # Strip lines and ignore lines starting with '#' (Markdown headers)
             content_lines = [line.rstrip() for line in file if not line.startswith("#")]
             prompt_prefix = "\n".join(content_lines)
 
     except FileNotFoundError:
         print(
-            "Warning: 'criteria_embed.md' not found. Using an empty prefix for embeddings."
+            "Warning: 'criteria_embed.conf' not found. Using an empty prefix for embeddings."
         )
 
     for _, row in df.iterrows():
@@ -145,7 +145,7 @@ def main():
     # Load API Key and set the specific embedding model
     api_key = helpers.load_api_key("~/openrouter.key")
     # Assuming load_models returns a list, and we need the first one
-    embedding_model = helpers.load_models("models_embed.md")[0]
+    embedding_model = helpers.load_models("models_embed.conf")[0]
 
     # Determine number of rows
     n_rows = int(args.n) if args.n.lower() != "all" else None

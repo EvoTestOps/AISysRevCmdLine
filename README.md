@@ -11,10 +11,10 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 - **Concurrent API Calls:** Efficiently processes multiple articles and models in parallel
 - **Model selection:** Copy the example file and adjust models you want to run from OpenRouter your settings:
   ```bash
-  cp models.md.example models.md
+  cp models.conf.example models.conf
 - **Inclusion / Exclusion Criteria:** Customize inclusion/exclusion criteria and instructions by copying the example file and adjusting it:
   ```bash
-  cp criteria.md.example criteria.md
+  cp criteria.conf.example criteria.conf
 - **Error Handling:** Semi-robust retry logic and error reporting.
 - **Progress Tracking:** Real-time progress bars with `tqdm`.
 

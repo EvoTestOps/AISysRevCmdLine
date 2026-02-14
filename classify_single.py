@@ -111,8 +111,8 @@ def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[Tuple[str, Dict]]
     Generates one prompt per paper per classification type, passing the full
     list of classes to the {4} placeholder as per the user's template structure.
     """
-    # NOTE: Ensure 'prompt_classify_single.md' is in the current directory
-    with open("prompt_classify_single.md", "r") as file:
+    # NOTE: Ensure 'prompt_classify_single.conf' is in the current directory
+    with open("prompt_classify_single.conf", "r") as file:
         prompt_template = file.read()
 
     tasks: List[Tuple[str, Dict]] = []
@@ -263,7 +263,7 @@ def main():
     args = parser.parse_args()
 
     api_key = load_api_key("~/openrouter.key")
-    models = load_models("models_classify.md")
+    models = load_models("models_classify.conf")
 
     if args.n.lower() == "all":
         n_rows = None

@@ -259,7 +259,7 @@ def generate_unique_model_keys(models: List[str]) -> List[str]:
 def generate_prompts(
     df: pd.DataFrame, criteria: str, additional_instructions: str
 ) -> List[str]:
-    with open("prompt.md", "r") as file:
+    with open("prompt.conf", "r") as file:
         prompt_template = file.read()
     prompts = []
     for _, row in df.iterrows():
@@ -520,10 +520,10 @@ if __name__ == "__main__":
     parser.add_argument("csv_file", help="Path to the input CSV file.")
     parser.add_argument("-n", "--n_rows", default="10", 
                         help="Number of rows to process (default: 10). Use 'all' for the entire file.")
-    parser.add_argument("-c", "--criteria", default="criteria.md", 
-                        help="Path to the criteria markdown file (default: criteria.md)")
-    parser.add_argument("-m", "--models", default="models.md", 
-                        help="Path to the models list file (default: models.md)")
+    parser.add_argument("-c", "--criteria", default="criteria.conf",
+                        help="Path to the criteria config file (default: criteria.conf)")
+    parser.add_argument("-m", "--models", default="models.conf",
+                        help="Path to the models list file (default: models.conf)")
     args = parser.parse_args()
 
     # Logic for n_rows: Convert to int unless it's "all"

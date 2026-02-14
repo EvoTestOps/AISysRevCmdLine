@@ -9,12 +9,8 @@ openrouter.key
 *.egg-info/
 
 # Local configuration files
-models.md
-models_classify.md
-models_generate_classes.md
-criteria.md
+*.conf
 criteria_classify.yml
-criteria_embed.md
 
 # Output files
 *_LLMs_*.csv

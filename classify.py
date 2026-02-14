@@ -160,7 +160,7 @@ async def process_prompts_for_model(
 
 
 def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[str]:
-    with open("prompt_classify.md", "r") as file:
+    with open("prompt_classify.conf", "r") as file:
         prompt_template = file.read()
 
     prompts = []
@@ -314,7 +314,7 @@ def main():
     args = parser.parse_args()
 
     api_key = load_api_key("~/openrouter.key")
-    models = load_models("models_classify.md")
+    models = load_models("models_classify.conf")
 
     if args.n.lower() == "all":
         n_rows = None
