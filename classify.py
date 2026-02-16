@@ -108,7 +108,6 @@ async def call_openrouter_async(
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "provider": {"order": ["google-vertex", "fireworks", "mistral"]},
         "response_format": {
             "type": "json_schema",
             "json_schema": {

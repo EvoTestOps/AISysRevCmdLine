@@ -18,7 +18,7 @@ from enum import Enum
 from pydantic_ai.output import ToolOutput
 from tqdm.asyncio import tqdm_asyncio
 from httpx import AsyncClient, HTTPStatusError, Response
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from pathlib import Path
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
 from pydantic_ai import Agent
@@ -136,9 +136,9 @@ async def log_response(response: Response) -> None:
 def create_retrying_client(
     *,
     max_wait_seconds: float = 60,
-    max_attempts: int = 3,
+    max_attempts: int = 6,
     retryable_statuses: Iterable[int] = RETRYABLE_STATUSES,
-    timeout: httpx.Timeout | None = httpx.Timeout(10.0),
+    timeout: httpx.Timeout | None = httpx.Timeout(120.0),
 ):
     retryable = set(retryable_statuses)
 
@@ -151,7 +151,7 @@ def create_retrying_client(
         config=RetryConfig(
             retry=retry_if_exception_type((HTTPStatusError, ConnectionError)),
             wait=wait_retry_after(
-                fallback_strategy=wait_exponential(multiplier=1, max=60),
+                fallback_strategy=wait_exponential_jitter(initial=1, max=max_wait_seconds, jitter=5),
                 max_wait=max_wait_seconds,
             ),
             stop=stop_after_attempt(max_attempts),
@@ -348,60 +348,86 @@ def flatten_nested_json(
 system_prompt = "You are an expert research assistant."
 
 
+def _is_permanent_error(exc: Exception) -> bool:
+    """Check if an error is permanent (not worth retrying other calls)."""
+    error_str = str(exc)
+    # Check for non-retryable HTTP status codes
+    for status in (400, 401, 403, 404, 405, 422):
+        if f"status_code: {status}" in error_str:
+            return True
+    return False
+
+
 async def call_openrouter_async(
     prompt: str,
+    agent: Agent,
     model_name: str,
-    api_key: str,
     semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
-    max_output_retries: int = 5,
+    error_state: dict,
+    abort: asyncio.Event,
 ) -> Optional[StructuredResponse]:
+    if abort.is_set():
+        return None
     async with semaphore:
+        if abort.is_set():
+            return None
         try:
-            settings = OpenRouterModelSettings(
-                openrouter_provider={
-                    "require_parameters": True,
-                    "data_collection": "deny",
-                },
-                extra_headers={
-                    "X-Title": "AISysRev",
-                    "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
-                },
-                # By default we fix temperature and top_p
-                temperature=0,
-                top_p=0.1,
-            )
-            model = OpenRouterModel(
-                model_name,
-                provider=OpenRouterProvider(api_key=api_key, http_client=client),
-                settings=settings,
-            )
-            agent = Agent(
-                model,
-                system_prompt=system_prompt,
-                retries=max_retries,
-                output_retries=max_output_retries,
-                output_type=ToolOutput(StructuredResponse, name="structured_response"),
-            )
             result = await agent.run(prompt)
             return result.output
         except Exception as e:
-            logger.error(f"LLM call failed for model {model_name}: {e}")
-            print(f"LLM call failed for model {model_name}: {e}")
+            error_state["count"] += 1
+            if error_state["count"] == 1:
+                error_state["first_error"] = str(e)
+                logger.error(f"LLM call failed for model {model_name}: {e}")
+                print(f"LLM call failed for model {model_name}: {e}")
+                if _is_permanent_error(e):
+                    abort.set()
     return None
 
 
 async def process_prompts_for_model(
     prompts: List[str],
-    model: str,
+    model_name: str,
     api_key: str,
     max_concurrent_per_model: int = 10,
+    max_retries: int = 3,
+    max_output_retries: int = 5,
 ) -> List[Optional[StructuredResponse]]:
     semaphore = asyncio.Semaphore(max_concurrent_per_model)
+    error_state = {"count": 0, "first_error": None}
+    abort = asyncio.Event()
+    settings = OpenRouterModelSettings(
+        extra_headers={
+            "X-Title": "AISysRev",
+            "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
+        },
+        # By default we fix temperature and top_p
+        temperature=0,
+        top_p=0.1,
+    )
+    model = OpenRouterModel(
+        model_name,
+        provider=OpenRouterProvider(api_key=api_key, http_client=client),
+        settings=settings,
+    )
+    agent = Agent(
+        model,
+        system_prompt=system_prompt,
+        retries=max_retries,
+        output_retries=max_output_retries,
+        output_type=ToolOutput(StructuredResponse, name="structured_response"),
+    )
     tasks = [
-        call_openrouter_async(prompt, model, api_key, semaphore) for prompt in prompts
+        call_openrouter_async(prompt, agent, model_name, semaphore, error_state, abort)
+        for prompt in prompts
     ]
-    return await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
+    results = await tqdm_asyncio.gather(*tasks, desc=f"Processing {model_name}")
+    if abort.is_set():
+        skipped = sum(1 for r in results if r is None)
+        print(f"Permanent error for model {model_name}, skipped {skipped}/{len(prompts)} calls")
+    elif error_state["count"] > 1:
+        print(f"... error repeated {error_state['count']} times for model {model_name}")
+    return results
 
 
 async def process_all_models(
