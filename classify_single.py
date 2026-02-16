@@ -3,14 +3,13 @@ import pandas as pd
 import argparse
 import os
 import yaml
-import aiohttp
 import asyncio
-import random
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Tuple
-from tqdm.asyncio import tqdm_asyncio
+from pydantic_ai.output import ToolOutput
 
-from helpers import validate_csv, load_models, load_api_key
+from helpers import validate_csv, load_models, load_api_key, get_unique_filename
+from async_api import create_agent, process_batch_agent
 
 # --- 1. Structured Response Model Creator ---
 
@@ -35,87 +34,16 @@ def load_classification_criteria(yml_file: str) -> Dict:
     return criteria
 
 
-async def call_openrouter_async(
-    prompt: str,
-    model: str,
-    api_key: str,
-    session: aiohttp.ClientSession,
-    semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
-    structured_schema: Dict = None,
-) -> Optional[Dict]:
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    schema = structured_schema if structured_schema is not None else {}
-
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "provider": {"order": ["google-vertex", "fireworks", "mistral"]},
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "structured_response",
-                "strict": True,
-                "schema": schema,
-            },
-        },
-    }
-    async with semaphore:
-        for attempt in range(max_retries):
-            try:
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as response:
-                    if response.status == 429:
-                        retry_after = int(response.headers.get("Retry-After", 5))
-                        jitter = random.uniform(0, 5)
-                        retry_after = retry_after + jitter + attempt * retry_after
-                        print(
-                            f"\nRate limited for model {model}. Retrying after {retry_after} seconds..."
-                        )
-                        await asyncio.sleep(retry_after)
-                        continue
-                    response.raise_for_status()
-                    return await response.json()
-            except Exception as e:
-                print(f"\nAttempt {attempt + 1} failed for model {model}: {e}")
-                await asyncio.sleep(2 ** (attempt + 2))
-        return None
-
-
-async def process_prompts_for_model(
-    tasks: List[Tuple[str, Dict]],
-    model: str,
-    api_key: str,
-    max_concurrent_per_model: int = 20,
-) -> List[Optional[Dict]]:
-    semaphore = asyncio.Semaphore(max_concurrent_per_model)
-    async with aiohttp.ClientSession() as session:
-        api_call_tasks = [
-            call_openrouter_async(
-                prompt, model, api_key, session, semaphore, structured_schema=schema
-            )
-            for prompt, schema in tasks
-        ]
-        return await tqdm_asyncio.gather(*api_call_tasks, desc=f"Processing {model}")
-
-
-# --- 2. Final, Simplified generate_prompts (Optimized for your template) ---
-def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[Tuple[str, Dict]]:
+# --- 2. Prompt generation ---
+def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[Tuple[str, List[str]]]:
     """
-    Generates one prompt per paper per classification type, passing the full
-    list of classes to the {4} placeholder as per the user's template structure.
+    Generates one prompt per paper per classification type.
+    Returns list of (prompt, class_options) tuples to group by classification type.
     """
-    # NOTE: Ensure 'prompt_classify_single.conf' is in the current directory
     with open("prompt_classify_single.conf", "r") as file:
         prompt_template = file.read()
 
-    tasks: List[Tuple[str, Dict]] = []
+    tasks: List[Tuple[str, List[str]]] = []
     sr_context = criteria["Systematic review context"]
 
     for _, row in df.iterrows():
@@ -131,45 +59,22 @@ def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[Tuple[str, Dict]]
             # The list of classes is formatted as a string for the prompt
             class_list_string = ", ".join([f"'{c}'" for c in classification["classes"]])
 
-            # Create the dynamic Pydantic model and its schema
-            ResponseModel = create_structured_response_model(class_options)
-            schema = ResponseModel.model_json_schema()
-
-            # The arguments correspond to the placeholders in your prompt template:
-            # {0}: title, {1}: abstract, {2}: sr_context, {3}: classification_name
-            # {4}: class_list_string (the list of options)
             prompt = prompt_template.format(
                 title,
                 abstract,
                 sr_context,
                 classification_name,
-                class_list_string,  # This will fill the "### Class: {4}" line
+                class_list_string,
             )
-            tasks.append((prompt, schema))
+            tasks.append((prompt, class_options))
 
     return tasks
 
 
-def get_unique_filename(base_path: str) -> str:
-    """
-    Generate a unique filename by appending a number if the file already exists.
-    """
-    base_dir, base_name = os.path.split(base_path)
-    name, ext = os.path.splitext(base_name)
-
-    counter = 1
-    new_path = base_path
-    while os.path.exists(new_path):
-        new_path = os.path.join(base_dir, f"{name}_{counter}{ext}")
-        counter += 1
-
-    return new_path
-
-
-# --- 3. parse_results (Unchanged, as it was correct for the single-choice logic) ---
+# --- 3. parse_results ---
 def parse_results(
-    tasks: List[Tuple[str, Dict]],
-    results: List[Optional[Dict]],
+    tasks: List[Tuple[str, List[str]]],
+    results: List[Optional[BaseModel]],
     df: pd.DataFrame,
     criteria: Dict,
 ) -> pd.DataFrame:
@@ -214,15 +119,10 @@ def parse_results(
             result = paper_results[res_idx] if res_idx < len(paper_results) else None
             chosen_class = "API_FAILED_OR_INVALID"
 
-            if result and "choices" in result and result["choices"]:
+            if result is not None:
                 try:
-                    content_str = result["choices"][0]["message"]["content"]
-
+                    chosen_class = result.chosen_class
                     class_options = classification["classes"] + ["other"]
-                    ResponseModel = create_structured_response_model(class_options)
-
-                    structured_response = ResponseModel.model_validate_json(content_str)
-                    chosen_class = structured_response.chosen_class
 
                     if chosen_class not in class_options:
                         print(
@@ -243,6 +143,45 @@ def parse_results(
     )
 
     return df
+
+
+async def process_tasks_for_model(
+    tasks: List[Tuple[str, List[str]]],
+    model_name: str,
+    api_key: str,
+) -> List[Optional[BaseModel]]:
+    """
+    Process tasks grouped by classification type.
+    Creates one Agent per unique set of class options.
+    """
+    # Group tasks by class_options (as tuple for hashing)
+    groups: Dict[tuple, List[Tuple[int, str]]] = {}
+    for idx, (prompt, class_options) in enumerate(tasks):
+        key = tuple(class_options)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append((idx, prompt))
+
+    # Process each group with its own Agent
+    all_results: List[Optional[BaseModel]] = [None] * len(tasks)
+
+    for class_options_tuple, indexed_prompts in groups.items():
+        class_options = list(class_options_tuple)
+        ResponseModel = create_structured_response_model(class_options)
+        agent = create_agent(
+            model_name,
+            api_key,
+            output_type=ToolOutput(ResponseModel, name="structured_response"),
+        )
+        prompts = [p for _, p in indexed_prompts]
+        indices = [i for i, _ in indexed_prompts]
+
+        results = await process_batch_agent(prompts, agent, model_name)
+
+        for orig_idx, result in zip(indices, results):
+            all_results[orig_idx] = result
+
+    return all_results
 
 
 def main():
@@ -298,7 +237,7 @@ def main():
     for model in models:
         print(f"\nProcessing with model: {model}")
 
-        results = asyncio.run(process_prompts_for_model(tasks, model, api_key))
+        results = asyncio.run(process_tasks_for_model(tasks, model, api_key))
 
         df = original_df.copy()
         df = parse_results(tasks, results, df, criteria)

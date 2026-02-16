@@ -7,26 +7,17 @@ import asyncio
 import csv
 import logging
 import sys
-import httpx
 import pandas as pd
 import json
 import os
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, field_validator, Field as PydanticField
 from enum import Enum
 from pydantic_ai.output import ToolOutput
-from tqdm.asyncio import tqdm_asyncio
-from httpx import AsyncClient, HTTPStatusError, Response
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from pathlib import Path
-from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
-from pydantic_ai import Agent
-from pydantic_ai.models.openrouter import (
-    OpenRouterModel,
-    OpenRouterModelSettings,
-)
-from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+from async_api import process_all_models_agent
 
 logging.getLogger().handlers.clear()
 
@@ -78,18 +69,18 @@ class Criterion(BaseModel, extra="forbid"):
     def normalize_id(cls, v: str) -> str:
         if not isinstance(v, str):
             return str(v)
-            
+
         # 1. Extract the basic parts: (Letter I or E) and (Digits)
         # This ignores any 'C' in the middle and any trailing text
         match = re.search(r'([IE])(?:C)?(\d+)', v, re.IGNORECASE)
-        
+
         if match:
             prefix = match.group(1).upper() # 'I' or 'E'
             number = match.group(2)         # '1', '2', etc.
             # 2. FORCE the format to 'IC' or 'EC'
             # To use the short format (I1), change this to: return f"{prefix}{number}"
-            return f"{prefix}C{number}" 
-            
+            return f"{prefix}C{number}"
+
         return v.strip().replace(" ", "_")
 
 class BinaryDecision(str, Enum):
@@ -117,56 +108,7 @@ def detect_delimiter(file_path: str) -> str:
         return ","  # default
 
 
-max_wait_seconds = 300
-RETRYABLE_STATUSES: set[int] = {429, 502, 503, 504}
-
-
-async def log_response(response: Response) -> None:
-    # event hook for AsyncClient should be async
-    if response.status_code in RETRYABLE_STATUSES:
-        logger.error(
-            "Retryable status %s for %s %s",
-            response.status_code,
-            response.request.method,
-            str(response.request.url),
-        )
-
-
-# https://ai.pydantic.dev/retries/#installation
-def create_retrying_client(
-    *,
-    max_wait_seconds: float = 60,
-    max_attempts: int = 6,
-    retryable_statuses: Iterable[int] = RETRYABLE_STATUSES,
-    timeout: httpx.Timeout | None = httpx.Timeout(120.0),
-):
-    retryable = set(retryable_statuses)
-
-    def validate_response(response: Response) -> None:
-        # Raise only for statuses we want to trigger retry logic
-        if response.status_code in retryable:
-            response.raise_for_status()
-
-    transport = AsyncTenacityTransport(
-        config=RetryConfig(
-            retry=retry_if_exception_type((HTTPStatusError, ConnectionError)),
-            wait=wait_retry_after(
-                fallback_strategy=wait_exponential_jitter(initial=1, max=max_wait_seconds, jitter=5),
-                max_wait=max_wait_seconds,
-            ),
-            stop=stop_after_attempt(max_attempts),
-            reraise=True,
-        ),
-        validate_response=validate_response,
-    )
-    return AsyncClient(
-        transport=transport,
-        timeout=timeout,
-        event_hooks={"response": [log_response]},
-    )
-
-
-client = create_retrying_client()
+system_prompt = "You are an expert research assistant."
 
 
 def validate_csv(file_path: str, n_rows: Optional[int] = None) -> pd.DataFrame:
@@ -274,23 +216,23 @@ def generate_output_filename(input_csv: str, criteria_path: str, models_path: st
     # 1. Identify the input folder
     input_path = Path(input_csv)
     input_dir = input_path.parent
-    
+
     # 2. Extract stems for naming
     csv_stem = input_path.stem
     c_stem = Path(criteria_path).stem
     m_stem = Path(models_path).stem
-    
+
     # 3. Combine into base format
     base_name = f"{csv_stem}_{c_stem}_{m_stem}"
-    
+
     # 4. Check for existing files in that specific directory
     output_path = input_dir / f"{base_name}.csv"
-    
+
     counter = 1
     while output_path.exists():
         output_path = input_dir / f"{base_name}_{counter:02d}.csv"
         counter += 1
-        
+
     return str(output_path)
 
 
@@ -306,11 +248,11 @@ def flatten_nested_json(
     flattened = {}
     for key, value in nested_dict.items():
         new_key = f"{parent_key}{sep}{key}" if parent_key else key
-        
+
         if isinstance(value, dict):
             # Recursively flatten dictionaries
             flattened.update(flatten_nested_json(value, new_key, sep))
-            
+
         elif isinstance(value, list):
             # Special handling for criteria lists to avoid raw JSON strings
             for item in value:
@@ -330,132 +272,21 @@ def flatten_nested_json(
             flattened[new_key] = value
     return flattened
 
-# def flatten_nested_json(
-#     nested_dict: Dict, parent_key: str = "", sep: str = "_"
-# ) -> Dict:
-#     flattened = {}
-#     for key, value in nested_dict.items():
-#         new_key = f"{parent_key}{sep}{key}" if parent_key else key
-#         if isinstance(value, dict):
-#             flattened.update(flatten_nested_json(value, new_key, sep))
-#         elif isinstance(value, list):
-#             flattened[new_key] = json.dumps(value)
-#         else:
-#             flattened[new_key] = value
-#     return flattened
-
-
-system_prompt = "You are an expert research assistant."
-
-
-def _is_permanent_error(exc: Exception) -> bool:
-    """Check if an error is permanent (not worth retrying other calls)."""
-    error_str = str(exc)
-    # Check for non-retryable HTTP status codes
-    for status in (400, 401, 403, 404, 405, 422):
-        if f"status_code: {status}" in error_str:
-            return True
-    return False
-
-
-async def call_openrouter_async(
-    prompt: str,
-    agent: Agent,
-    model_name: str,
-    semaphore: asyncio.Semaphore,
-    error_state: dict,
-    abort: asyncio.Event,
-) -> Optional[StructuredResponse]:
-    if abort.is_set():
-        return None
-    async with semaphore:
-        if abort.is_set():
-            return None
-        try:
-            result = await agent.run(prompt)
-            return result.output
-        except Exception as e:
-            error_state["count"] += 1
-            if error_state["count"] == 1:
-                error_state["first_error"] = str(e)
-                logger.error(f"LLM call failed for model {model_name}: {e}")
-                print(f"LLM call failed for model {model_name}: {e}")
-                if _is_permanent_error(e):
-                    abort.set()
-    return None
-
-
-async def process_prompts_for_model(
-    prompts: List[str],
-    model_name: str,
-    api_key: str,
-    max_concurrent_per_model: int = 10,
-    max_retries: int = 3,
-    max_output_retries: int = 5,
-) -> List[Optional[StructuredResponse]]:
-    semaphore = asyncio.Semaphore(max_concurrent_per_model)
-    error_state = {"count": 0, "first_error": None}
-    abort = asyncio.Event()
-    settings = OpenRouterModelSettings(
-        extra_headers={
-            "X-Title": "AISysRev",
-            "HTTP-Referer": "https://github.com/EvoTestOps/AISysRev",
-        },
-        # By default we fix temperature and top_p
-        temperature=0,
-        top_p=0.1,
-    )
-    model = OpenRouterModel(
-        model_name,
-        provider=OpenRouterProvider(api_key=api_key, http_client=client),
-        settings=settings,
-    )
-    agent = Agent(
-        model,
-        system_prompt=system_prompt,
-        retries=max_retries,
-        output_retries=max_output_retries,
-        output_type=ToolOutput(StructuredResponse, name="structured_response"),
-    )
-    tasks = [
-        call_openrouter_async(prompt, agent, model_name, semaphore, error_state, abort)
-        for prompt in prompts
-    ]
-    results = await tqdm_asyncio.gather(*tasks, desc=f"Processing {model_name}")
-    if abort.is_set():
-        skipped = sum(1 for r in results if r is None)
-        print(f"Permanent error for model {model_name}, skipped {skipped}/{len(prompts)} calls")
-    elif error_state["count"] > 1:
-        print(f"... error repeated {error_state['count']} times for model {model_name}")
-    return results
-
-
-async def process_all_models(
-    prompts: List[str],
-    models: List[str],
-    api_key: str,
-    max_concurrent_per_model: int = 20,
-) -> Tuple[List[List[Optional[StructuredResponse]]], List[str]]:
-    logger.info(
-        f"Processing {len(models)} models with {max_concurrent_per_model} concurrent prompts per model..."
-    )
-    print(
-        f"Processing {len(models)} models with {max_concurrent_per_model} concurrent prompts per model..."
-    )
-    model_keys = generate_unique_model_keys(models)
-    model_tasks = [
-        process_prompts_for_model(prompts, model, api_key, max_concurrent_per_model)
-        for model in models
-    ]
-    return await tqdm_asyncio.gather(*model_tasks, desc="Processing models"), model_keys
-
 
 def run_nested_async_processing(
     df: pd.DataFrame, prompts: List[str], models: List[str], api_key: str
 ) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]], List[str]]:
     df = df.copy().reset_index(drop=True)
-    model_results, model_keys = asyncio.run(
-        process_all_models(prompts, models, api_key, max_concurrent_per_model=20)
+    model_keys = generate_unique_model_keys(models)
+    model_results = asyncio.run(
+        process_all_models_agent(
+            prompts,
+            models,
+            api_key,
+            system_prompt=system_prompt,
+            output_type=ToolOutput(StructuredResponse, name="structured_response"),
+            max_concurrent_per_model=20,
+        )
     )
     stats = {}
     for model_idx, model in enumerate(models):
@@ -542,9 +373,9 @@ def add_average_probability(df: pd.DataFrame, model_keys: List[str]) -> pd.DataF
 # --- Main ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Screen papers based on title and abstract using LLMs.")
-    
+
     parser.add_argument("csv_file", help="Path to the input CSV file.")
-    parser.add_argument("-n", "--n_rows", default="10", 
+    parser.add_argument("-n", "--n_rows", default="10",
                         help="Number of rows to process (default: 10). Use 'all' for the entire file.")
     parser.add_argument("-c", "--criteria", default="criteria.conf",
                         help="Path to the criteria config file (default: criteria.conf)")
@@ -554,11 +385,11 @@ if __name__ == "__main__":
 
     # Logic for n_rows: Convert to int unless it's "all"
     n_rows = None if args.n_rows.lower() == "all" else int(args.n_rows)
-    
+
     # Load configuration files
     api_key = load_api_key("~/openrouter.key")
     models = load_models(args.models)
-    
+
     # Load Criteria
     try:
         with open(args.criteria, "r") as file:
@@ -572,9 +403,9 @@ if __name__ == "__main__":
     additional_instructions = ""
     logger.info("Validating CSV file")
     print(f"Config: Rows={args.n_rows}, Criteria={args.criteria}, Models={args.models}")
-    
+
     df = validate_csv(args.csv_file, n_rows=n_rows)
-    
+
     logger.info(f"In total {len(df)} articles.")
     print(f"In total {len(df)} articles.")
     print(f"Criteria:\n ------------------\n {criteria[:300]}... \n ------------------")

@@ -4,67 +4,19 @@ import sys
 import pandas as pd
 import argparse
 import os
-import random
 import aiohttp
 import asyncio
 from typing import List, Optional
-from tqdm.asyncio import tqdm_asyncio
 
-# Assuming 'helpers' is in the same directory or accessible
 import helpers
+from async_api import (
+    retry_aiohttp_call,
+    process_batch_aiohttp,
+    make_openrouter_headers,
+    OPENROUTER_BASE_URL,
+)
 
-# --- I/O and Network Functions (Kept from original) ---
-
-
-async def call_openrouter_embedding_async(
-    text_input: str,
-    model: str,
-    api_key: str,
-    session: aiohttp.ClientSession,
-    semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
-) -> Optional[List[float]]:
-    """Calls OpenRouter's embedding endpoint and returns the vector."""
-    url = "https://openrouter.ai/api/v1/embeddings"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    payload = {"model": model, "input": text_input, "encoding_format": "float"}
-
-    async with semaphore:
-        for attempt in range(max_retries):
-            try:
-                # Use a standard timeout for API calls
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60),
-                ) as response:
-                    if response.status == 429:
-                        retry_after = int(response.headers.get("Retry-After", 5))
-                        jitter = random.uniform(0, 5)
-                        retry_after = retry_after + jitter + attempt * retry_after
-                        print(
-                            f"\nRate limited for embedding model {model}. Retrying after {retry_after:.2f} seconds..."
-                        )
-                        await asyncio.sleep(retry_after)
-                        continue
-
-                    response.raise_for_status()
-
-                    result = await response.json()
-
-                    if result and "data" in result and len(result["data"]) > 0:
-                        return result["data"][0]["embedding"]
-                    return None
-
-            except Exception as e:
-                # Exponential backoff for other errors
-                print(
-                    f"\nAttempt {attempt + 1} failed for embedding model {model}: {e}"
-                )
-                await asyncio.sleep(2 ** (attempt + 2))
-        return None
+# --- I/O and Network Functions ---
 
 
 async def process_texts_for_embedding(
@@ -74,15 +26,30 @@ async def process_texts_for_embedding(
     max_concurrent_per_model: int = 20,
 ) -> List[Optional[List[float]]]:
     """Processes texts for embedding creation using concurrent async calls."""
-    semaphore = asyncio.Semaphore(max_concurrent_per_model)
-    # Set a higher limit for aiohttp.ClientSession to prevent 'Too many open files' error
+    headers = make_openrouter_headers(api_key)
     conn = aiohttp.TCPConnector(limit=max_concurrent_per_model * 2)
+
     async with aiohttp.ClientSession(connector=conn) as session:
-        tasks = [
-            call_openrouter_embedding_async(text, model, api_key, session, semaphore)
-            for text in texts
-        ]
-        return await tqdm_asyncio.gather(*tasks, desc=f"Embedding with {model}")
+
+        async def call_single(text: str) -> Optional[List[float]]:
+            payload = {"model": model, "input": text, "encoding_format": "float"}
+            result = await retry_aiohttp_call(
+                session,
+                f"{OPENROUTER_BASE_URL}/embeddings",
+                json_payload=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=60),
+            )
+            if result and "data" in result and len(result["data"]) > 0:
+                return result["data"][0]["embedding"]
+            return None
+
+        return await process_batch_aiohttp(
+            texts,
+            call_single,
+            description=f"Embedding with {model}",
+            max_concurrent=max_concurrent_per_model,
+        )
 
 
 def generate_prompts(df: pd.DataFrame) -> List[str]:
@@ -93,7 +60,6 @@ def generate_prompts(df: pd.DataFrame) -> List[str]:
 
     prompt_prefix = ""
     try:
-        # NOTE: This file is assumed to exist in the same run directory
         with open("criteria_embed.conf", "r") as file:
             # Strip lines and ignore lines starting with '#' (Markdown headers)
             content_lines = [line.rstrip() for line in file if not line.startswith("#")]
@@ -208,7 +174,7 @@ def main():
 
     # Save the new DataFrame with embeddings
     df.to_csv(output_path, index=False)
-    print(f"\n✅ Results saved to {output_path}")
+    print(f"\nResults saved to {output_path}")
 
 
 if __name__ == "__main__":
