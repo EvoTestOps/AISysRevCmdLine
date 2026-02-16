@@ -1,6 +1,18 @@
 # Shared async API infrastructure for OpenRouter calls.
 # Used by screen.py (pydantic_ai Agent), classify.py, classify_single.py (pydantic_ai Agent),
 # and embed.py (aiohttp for /embeddings endpoint).
+#  
+# This file has two parallel stacks:
+# 1) pydantic_ai Agent stack (httpx-based) - used by screen.py, classify.py, classify_single.py
+#   create_retrying_client → 
+#   client singleton → 
+#   create_agent → 
+#   _call_agent → 
+#   process_batch_agent → 
+#   process_all_models_agent — 
+# 2) aiohttp stack: — used by embed.py (which hits the /embeddings endpoint directly)
+#   retry_aiohttp_call → 
+#   process_batch_aiohttp + make_openrouter_headers 
 
 import asyncio
 import logging
@@ -32,6 +44,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # --- httpx retry client (for pydantic_ai Agent) ---
 
 
+# httpx event hook that logs retryable HTTP errors (429, 502-504).
+# Attached to the module-level httpx client used by all pydantic_ai Agent calls.
 async def log_response(response: Response) -> None:
     if response.status_code in RETRYABLE_STATUSES:
         logger.error(
@@ -42,6 +56,9 @@ async def log_response(response: Response) -> None:
         )
 
 
+# Build an httpx AsyncClient with automatic retry on rate-limit (429) and server
+# errors (502-504) using tenacity exponential backoff. Called once at module level
+# to create the singleton `client` that all pydantic_ai Agents share.
 def create_retrying_client(
     *,
     max_wait_seconds: float = 300,
@@ -83,6 +100,10 @@ client = create_retrying_client()
 # --- Agent factory ---
 
 
+# Create a pydantic_ai Agent configured for an OpenRouter model with deterministic
+# settings (temperature=0, top_p=0.1) and structured output. The agent uses the
+# module-level retrying httpx client for HTTP resilience.
+# Called by: screen.py (via process_all_models_agent), classify.py, classify_single.py.
 def create_agent(
     model_name: str,
     api_key: str,
@@ -117,6 +138,9 @@ def create_agent(
 # --- Permanent error detection ---
 
 
+# Check if an exception indicates a permanent HTTP error (400, 401, 403, 404, 405, 422)
+# that means further API calls will also fail (e.g. bad API key, invalid model).
+# Used by _call_agent to trigger early abort of remaining batch items.
 def _is_permanent_error(exc: Exception) -> bool:
     """Check if an error is permanent (not worth retrying other calls)."""
     error_str = str(exc)
@@ -129,6 +153,10 @@ def _is_permanent_error(exc: Exception) -> bool:
 # --- pydantic_ai Agent concurrency orchestration ---
 
 
+# Send a single prompt to a pydantic_ai Agent, respecting the concurrency semaphore.
+# Tracks errors in shared error_state dict and signals abort on permanent errors
+# so sibling tasks in the same batch can exit early.
+# Internal helper — called only by process_batch_agent.
 async def _call_agent(
     prompt: str,
     agent: Agent,
@@ -156,6 +184,10 @@ async def _call_agent(
     return None
 
 
+# Run all prompts through a single pydantic_ai Agent with semaphore-limited concurrency.
+# Returns a list of parsed outputs (or None for failures) in the same order as prompts.
+# Aborts remaining calls early on permanent errors; deduplicates repeated error messages.
+# Called by: classify.py, classify_single.py (directly), screen.py (via process_all_models_agent).
 async def process_batch_agent(
     prompts: List[str],
     agent: Agent,
@@ -183,6 +215,10 @@ async def process_batch_agent(
     return results
 
 
+# Top-level orchestrator: creates one pydantic_ai Agent per model and runs all models
+# concurrently (each model's prompts are further concurrency-limited by process_batch_agent).
+# Returns a list-of-lists: outer = models, inner = per-prompt results.
+# Called by: screen.py only (the main screening pipeline).
 async def process_all_models_agent(
     prompts: List[str],
     models: List[str],
@@ -224,6 +260,10 @@ class PermanentAPIError(Exception):
         super().__init__(f"Permanent API error {status_code}: {message}")
 
 
+# Make a single aiohttp POST with manual retry logic (exponential backoff for 429/5xx,
+# immediate abort for permanent errors like 401/404). This is the low-level HTTP layer
+# for callers that don't use pydantic_ai (which has its own httpx-based retry).
+# Called by: embed.py to hit the OpenRouter /embeddings endpoint.
 async def retry_aiohttp_call(
     session: aiohttp.ClientSession,
     url: str,
@@ -271,6 +311,10 @@ async def retry_aiohttp_call(
     return None
 
 
+# Generic concurrency orchestrator for aiohttp-based calls. Same pattern as
+# process_batch_agent (semaphore, abort-on-permanent-error, error dedup) but takes
+# an arbitrary async function instead of a pydantic_ai Agent.
+# Called by: embed.py to run embedding requests for all papers concurrently.
 async def process_batch_aiohttp(
     items: list,
     async_fn: Callable[[Any], Awaitable[Optional[T]]],
@@ -317,6 +361,9 @@ async def process_batch_aiohttp(
     return results
 
 
+# Build the standard Authorization + Content-Type headers for raw OpenRouter API calls.
+# Called by: embed.py (aiohttp calls don't go through the pydantic_ai Agent which adds
+# headers automatically via OpenRouterModelSettings).
 def make_openrouter_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
