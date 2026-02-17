@@ -3,16 +3,12 @@
 # and embed.py (aiohttp for /embeddings endpoint).
 #  
 # This file has two parallel stacks:
-# 1) pydantic_ai Agent stack (httpx-based) - used by screen.py, classify.py, classify_single.py
-#   create_retrying_client → 
-#   client singleton → 
-#   create_agent → 
-#   _call_agent → 
-#   process_batch_agent → 
-#   process_all_models_agent — 
-# 2) aiohttp stack: — used by embed.py (which hits the /embeddings endpoint directly)
-#   retry_aiohttp_call → 
-#   process_batch_aiohttp + make_openrouter_headers 
+# 1) pydantic_ai Agent stack (httpx-based):
+#   screen.py: process_all_models_agent → create_agent + process_batch_agent → _call_agent → client
+#   classify.py, classify_single.py: create_agent → process_batch_agent → _call_agent → client
+#   (client singleton created by create_retrying_client at module load)
+# 2) aiohttp stack - used by embed.py (which hits the /embeddings endpoint directly):
+#   process_batch_aiohttp → retry_aiohttp_call + make_openrouter_headers 
 
 import asyncio
 import logging
