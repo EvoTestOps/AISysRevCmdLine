@@ -8,14 +8,13 @@ import pandas as pd
 import argparse
 import os
 import yaml
-import aiohttp
 import asyncio
-import random
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Set, Tuple
-from tqdm.asyncio import tqdm_asyncio
+from pydantic_ai.output import ToolOutput
 
-from helpers import validate_csv, load_models, load_api_key
+from helpers import validate_csv, load_models, load_api_key, get_unique_filename
+from async_api import create_agent, process_batch_agent
 
 
 class StructuredResponse(BaseModel, extra="forbid"):
@@ -91,74 +90,6 @@ def load_classification_criteria(yml_file: str) -> Dict:
     return criteria
 
 
-async def call_openrouter_async(
-    prompt: str,
-    model: str,
-    api_key: str,
-    session: aiohttp.ClientSession,
-    semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
-) -> Optional[Dict]:
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    if model.startswith("openai/"):
-        schema = StructuredResponse.model_json_schema()
-    else:
-        schema = StructuredResponse.model_json_schema()
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "provider": {"order": ["google-vertex", "fireworks", "mistral"]},
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "structured_response",
-                "strict": True,
-                "schema": schema,
-            },
-        },
-    }
-    async with semaphore:
-        for attempt in range(max_retries):
-            try:
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as response:
-                    if response.status == 429:
-                        retry_after = int(response.headers.get("Retry-After", 5))
-                        jitter = random.uniform(0, 5)
-                        retry_after = retry_after + jitter + attempt * retry_after
-                        print(
-                            f"\nRate limited for model {model}. Retrying after {retry_after} seconds..."
-                        )
-                        await asyncio.sleep(retry_after)
-                        continue
-                    response.raise_for_status()
-                    return await response.json()
-            except Exception as e:
-                print(f"\nAttempt {attempt + 1} failed for model {model}: {e}")
-                await asyncio.sleep(2 ** (attempt + 2))
-        return None
-
-
-async def process_prompts_for_model(
-    prompts: List[str],
-    model: str,
-    api_key: str,
-    max_concurrent_per_model: int = 20,
-) -> List[Optional[Dict]]:
-    semaphore = asyncio.Semaphore(max_concurrent_per_model)
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            call_openrouter_async(prompt, model, api_key, session, semaphore)
-            for prompt in prompts
-        ]
-        return await tqdm_asyncio.gather(*tasks, desc=f"Processing {model}")
-
-
 def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[str]:
     with open("prompt_classify.conf", "r") as file:
         prompt_template = file.read()
@@ -181,38 +112,13 @@ def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[str]:
     return prompts
 
 
-def get_unique_filename(base_path: str) -> str:
-    """
-    Generate a unique filename by appending a number if the file already exists.
-    """
-    base_dir, base_name = os.path.split(base_path)
-    name, ext = os.path.splitext(base_name)
-
-    counter = 1
-    new_path = base_path
-    while os.path.exists(new_path):
-        new_path = os.path.join(base_dir, f"{name}_{counter}{ext}")
-        counter += 1
-
-    return new_path
-
-
 def parse_results(
-    prompts: List[str], results: List[Optional[Dict]], df: pd.DataFrame, criteria: Dict
+    prompts: List[str], results: List[Optional[StructuredResponse]], df: pd.DataFrame, criteria: Dict
 ) -> pd.DataFrame:
     """
-    Parses the structured JSON results from the LLMs and adds the probability
-    decision for each classification as new columns in the DataFrame, placing
-    them *before* the original columns, and adds the newly assigned chosen class.
-
-    Args:
-        prompts: The list of prompts generated for the LLMs.
-        results: The list of JSON responses from the LLMs.
-        df: The original DataFrame of papers.
-        criteria: The loaded classification criteria (to get class names).
-
-    Returns:
-        The updated DataFrame with new classification columns first.
+    Parses the structured results from the LLMs and adds the probability
+    decision for each classification as new columns in the DataFrame.
+    Results are already typed StructuredResponse objects from pydantic_ai.
     """
     if len(prompts) != len(results):
         print("Warning: Mismatch between number of prompts and results.")
@@ -253,13 +159,9 @@ def parse_results(
                 result = paper_results[res_idx]
                 probability = None
 
-                if result and "choices" in result and result["choices"]:
+                if result is not None:
                     try:
-                        content_str = result["choices"][0]["message"]["content"]
-                        structured_response = StructuredResponse.model_validate_json(
-                            content_str
-                        )
-                        probability = structured_response.probability_decision
+                        probability = result.probability_decision
 
                         if not (0.0 <= probability <= 1.0):
                             print(
@@ -273,7 +175,7 @@ def parse_results(
                 paper_results_dict[col_name] = probability
                 res_idx += 1
 
-        # --- NEW FEATURE: Assign the chosen class ---
+        # --- Assign the chosen class ---
         chosen_classes_dict = assign_chosen_class_per_paper(
             paper_results_dict, classification_names
         )
@@ -281,14 +183,11 @@ def parse_results(
         # Merge probability and chosen class results
         final_paper_results = {**chosen_classes_dict, **paper_results_dict}
         classification_data.append(final_paper_results)
-        # --- END NEW FEATURE ---
 
     # Convert the list of dictionaries to a DataFrame
     classification_df = pd.DataFrame(classification_data)
 
-    # Concatenate the new classification columns (*including the chosen class columns*)
-    # *before* the original DataFrame.
-    # We put 'classification_df' first in the list passed to pd.concat.
+    # Concatenate the new classification columns before the original DataFrame.
     df = pd.concat(
         [classification_df.reset_index(drop=True), df.reset_index(drop=True)], axis=1
     )
@@ -351,7 +250,12 @@ def main():
     # Process prompts with each model
     for model in models:
         print(f"\nProcessing with model: {model}")
-        results = asyncio.run(process_prompts_for_model(prompts, model, api_key))
+        agent = create_agent(
+            model,
+            api_key,
+            output_type=ToolOutput(StructuredResponse, name="structured_response"),
+        )
+        results = asyncio.run(process_batch_agent(prompts, agent, model))
 
         # Create a fresh copy of the original DataFrame for each model
         df = original_df.copy()
