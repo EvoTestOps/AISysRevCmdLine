@@ -13,22 +13,22 @@ AISysRevCmdLine is a command-line tool for automated systematic literature revie
 pytest
 
 # Run the main screening tool
-uv run screen.py <csv_file> -n <count|all> -c criteria.conf -m models.conf
+python screen.py <csv_file> -n <count|all> -c criteria.conf -m models.conf
 
 # Run classification (probability-based)
-uv run classify.py <csv_file> -n all -p 0.5
+python classify.py <csv_file> -n all -p 0.5
 
 # Run single-choice classification
-uv run classify_single.py <csv_file> -n 10
+python classify_single.py <csv_file> -n 10
 
 # Generate embeddings
-uv run embed.py <csv_file> -n all -p 0.7
+python embed.py <csv_file> -n all -p 0.7
 
 # Plot embeddings (UMAP + Plotly)
-uv run plot.py <csv_file> -c
+python plot.py <csv_file> -c
 ```
 
-Package management uses `uv`. Python version: 3.14.
+Python environment: conda, or venv. Python version: 3.14.
 
 ## Architecture
 
@@ -66,4 +66,4 @@ Uses OpenRouter API (`https://openrouter.ai/api/v1/`) with `temperature: 0`, `to
 
 ## Testing
 
-Tests are in `tests/` with test CSV fixtures in `tests/test_csv_files/`. Current test coverage focuses on CSV validation edge cases (delimiter detection, missing/duplicate columns, header normalization).
+Tests are in `tests/` with test CSV fixtures in `tests/test_csv_files/`. Testing is mainly done by running commands against OpenRouter with default settings (typically first 10 papers only, keeping costs low). Some unit tests cover CSV validation edge cases (delimiter detection, missing/duplicate columns, header normalization).
