@@ -129,7 +129,7 @@ def main():
     print(f"Processing {n_papers} papers.")
     # Continue with your processing logic here
 
-    with open("prompt_generate_classes.conf", "r") as file:
+    with open("prompts/prompt_generate_classes.txt", "r") as file:
         prompt_template = file.read()
 
     studies = []

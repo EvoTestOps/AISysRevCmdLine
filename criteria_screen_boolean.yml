@@ -1,0 +1,47 @@
+# Rename to criteria_boolean.yml
+# Inclusion/exclusion criteria for title/abstract screening in systematic reviews.
+#
+# Boolean logic:
+#   Each section (inclusion, exclusion) has an 'operator' (AND | OR) applied to its items.
+#   Items can be either:
+#     - a criterion:  id + description
+#     - a nested group: operator + criteria  (for complex expressions)
+#
+# Decision rule:
+#   Include if: inclusion evaluates to TRUE
+#   Exclude if: exclusion evaluates to TRUE
+#   Final decision: include AND NOT exclude
+#
+# Examples of nested logic:
+#
+#   # (IC1 AND IC2) OR IC3
+#   inclusion:
+#     operator: OR
+#     criteria:
+#       - operator: AND
+#         criteria:
+#           - id: IC1
+#             description: ...
+#           - id: IC2
+#             description: ...
+#       - id: IC3
+#         description: ...
+#
+#   # NOT EC2 (invert a single criterion)
+#   - id: EC2
+#     description: Security and Safety testing
+#     negate: true
+
+inclusion:
+  operator: OR   # paper must satisfy ANY inclusion criterion
+  criteria:
+    - id: IC1
+      description: Study is done in software industry
+    - id: IC2
+      description: Company name is presented
+
+exclusion:
+  operator: OR    # paper is excluded if ANY exclusion criterion is met
+  criteria:
+    - id: EC1
+      description: Tests of hardware systems

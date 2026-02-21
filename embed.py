@@ -60,14 +60,14 @@ def generate_prompts(df: pd.DataFrame) -> List[str]:
 
     prompt_prefix = ""
     try:
-        with open("criteria_embed.conf", "r") as file:
+        with open("embed.conf", "r") as file:
             # Strip lines and ignore lines starting with '#' (Markdown headers)
             content_lines = [line.rstrip() for line in file if not line.startswith("#")]
             prompt_prefix = "\n".join(content_lines)
 
     except FileNotFoundError:
         print(
-            "Warning: 'criteria_embed.conf' not found. Using an empty prefix for embeddings."
+            "Warning: 'embed.conf' not found. Using an empty prefix for embeddings."
         )
 
     for _, row in df.iterrows():

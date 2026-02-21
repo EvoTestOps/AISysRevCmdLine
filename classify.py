@@ -91,7 +91,7 @@ def load_classification_criteria(yml_file: str) -> Dict:
 
 
 def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[str]:
-    with open("prompt_classify.conf", "r") as file:
+    with open("prompts/prompt_classify.txt", "r") as file:
         prompt_template = file.read()
 
     prompts = []
