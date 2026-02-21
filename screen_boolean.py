@@ -324,10 +324,10 @@ if __name__ == "__main__":
     criteria_yml = load_criteria(args.criteria)
 
     try:
-        with open("prompts/prompt_boolean.txt", "r") as f:
+        with open("prompts/prompt_screen_boolean.txt", "r") as f:
             prompt_template = f.read()
     except FileNotFoundError:
-        sys.exit("Error: 'prompts/prompt_boolean.txt' not found.")
+        sys.exit("Error: 'prompts/prompt_screen_boolean.txt' not found.")
 
     leaf_inclusion = extract_leaf_criteria(criteria_yml.get("inclusion", {}))
     leaf_exclusion = extract_leaf_criteria(criteria_yml.get("exclusion", {}))

@@ -201,7 +201,7 @@ def generate_unique_model_keys(models: List[str]) -> List[str]:
 def generate_prompts(
     df: pd.DataFrame, criteria: str, additional_instructions: str
 ) -> List[str]:
-    with open("prompts/prompt.txt", "r") as file:
+    with open("prompts/prompt_screen.txt", "r") as file:
         prompt_template = file.read()
     prompts = []
     for _, row in df.iterrows():

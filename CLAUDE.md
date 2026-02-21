@@ -15,6 +15,9 @@ pytest
 # Run the main screening tool
 python screen.py <csv_file> -n <count|all> -c criteria.conf -m models.conf
 
+# Run per-criterion boolean screening
+python screen_boolean.py <csv_file> -n <count|all> -c criteria_screen_boolean.yml -m models.conf
+
 # Run classification (probability-based)
 python classify.py <csv_file> -n all -p 0.5
 
@@ -34,6 +37,7 @@ Python environment: conda, or venv. Python version: 3.14.
 
 **Entry points** — each is a standalone CLI script using argparse:
 - `screen.py` — Main screening pipeline. Sends papers to LLMs with criteria, collects structured JSON responses, flattens them into CSV columns.
+- `screen_boolean.py` — Per-criterion screening pipeline. Sends each criterion as a separate LLM call, combines per-criterion probabilities using fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML.
 - `classify.py` — Multi-class probability classification.
 - `classify_single.py` — Single best-fit class assignment using dynamic Pydantic models.
 - `embed.py` — Generate vector embeddings via OpenRouter `/embeddings` endpoint.
@@ -43,7 +47,7 @@ Python environment: conda, or venv. Python version: 3.14.
 - `helpers.py` — CSV validation (auto-detects delimiter, normalizes headers), API key loading (`~/openrouter.key`), model config loading, unique filename generation.
 - `async_api.py` — Async API infrastructure with two parallel stacks:
   1. **pydantic_ai Agent stack** (httpx-based, for structured outputs):
-     - `screen.py`: `process_all_models_agent` → `create_agent` + `process_batch_agent` → `_call_agent` → httpx client
+     - `screen.py`, `screen_boolean.py`: `process_all_models_agent` → `create_agent` + `process_batch_agent` → `_call_agent` → httpx client
      - `classify.py`, `classify_single.py`: `create_agent` → `process_batch_agent` → `_call_agent` → httpx client
   2. **aiohttp stack** (for `/embeddings` endpoint):
      - `embed.py`: `process_batch_aiohttp` → `retry_aiohttp_call` + `make_openrouter_headers`
@@ -51,7 +55,7 @@ Python environment: conda, or venv. Python version: 3.14.
 **Core data flows:**
 
 *screen.py (screening task):*
-1. `validate_csv()` → `generate_prompts()` using criteria.conf + prompt.conf
+1. `validate_csv()` → `generate_prompts()` using criteria.conf + prompts/prompt_screen.txt
 2. `process_all_models_agent()` — async concurrent API calls with semaphore-limited concurrency per model
 3. Parse structured JSON → `flatten_nested_json()` into flat CSV columns
 4. `add_average_probability()` → save enriched CSV
@@ -68,8 +72,14 @@ Python environment: conda, or venv. Python version: 3.14.
 3. Parse structured JSON with single class assignment → flatten into CSV columns
 4. Save enriched CSV with selected class labels
 
+*screen_boolean.py (per-criterion boolean screening):*
+1. `validate_csv()` → load `criteria_screen_boolean.yml` (boolean criteria tree) → `generate_prompts()` using `prompts/prompt_screen_boolean.txt` (one prompt per paper per criterion)
+2. `process_all_models_agent()` — one async call per paper per criterion
+3. `fuzzy_eval()` — apply fuzzy boolean logic across criteria tree per paper
+4. Compute `(inclusion_prob, exclusion_prob, overall_prob, binary_decision)` → save enriched CSV
+
 *embed.py (vector embeddings):*
-1. `validate_csv()` → load criteria_embed.conf → generate embedding texts
+1. `validate_csv()` → load embed.conf → generate embedding texts
 2. `process_batch_aiohttp()` with `retry_aiohttp_call()` — direct aiohttp POST to `/embeddings` endpoint
 3. Extract vector embeddings → add as columns to CSV
 4. Save enriched CSV with embedding dimensions as columns
@@ -93,8 +103,15 @@ User-customizable `.conf` and `.yml` files (gitignored — copy from `.example` 
 - `models.conf` — One OpenRouter model ID per line
 - `criteria.conf` — Inclusion/exclusion criteria text
 - `criteria_classify.yml` — YAML classification taxonomies
-- `prompt.conf` / `prompt_classify.conf` / `prompt_classify_single.conf` — Prompt templates with `{0}`-`{3}` placeholders
-- `criteria_embed.conf` — Text prefix for embeddings
+- `criteria_screen_boolean.yml` — Boolean criteria tree for `screen_boolean.py` (tracked in git as a working example)
+- `embed.conf` — Text prefix for embeddings
+
+Prompt templates (tracked in git, not meant to be edited by users):
+- `prompts/prompt_screen.txt` — Template for `screen.py` with `{0}`-`{3}` placeholders
+- `prompts/prompt_classify.txt` — Template for `classify.py`
+- `prompts/prompt_classify_single.txt` — Template for `classify_single.py`
+- `prompts/prompt_generate_classes.txt` — Template for `generate_classes.py`
+- `prompts/prompt_screen_boolean.txt` — Template for `screen_boolean.py`
 
 ## API Integration
 
