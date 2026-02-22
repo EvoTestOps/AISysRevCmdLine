@@ -11,6 +11,8 @@ import asyncio
 import logging
 import sys
 import yaml
+import numpy as np
+import krippendorff
 import pandas as pd
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
@@ -174,14 +176,15 @@ def process_results_boolean(
     leaf_criteria: list[dict],
     criteria_yml: dict,
     resolver: ColResolver,
-) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]], List[str], List[str]]:
+) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]], List[str], List[str], Dict[str, List[str]]]:
     """Parse per-criterion LLM results, apply fuzzy logic, write columns to df.
-    Returns (df, stats, overall_prob_cols, binary_decision_cols)."""
+    Returns (df, stats, overall_prob_cols, binary_decision_cols, crit_prob_cols)."""
     n_papers = len(df)
     n_criteria = len(leaf_criteria)
     stats = {}
     overall_prob_cols: List[str] = []
     binary_decision_cols: List[str] = []
+    crit_prob_cols: Dict[str, List[str]] = {c["id"]: [] for c in leaf_criteria}
 
     for model_idx, model in enumerate(models):
         unique_key = model_keys[model_idx]
@@ -198,6 +201,8 @@ def process_results_boolean(
         binary_col  = resolver.resolve(f"{unique_key}_binary_decision")
         overall_prob_cols.append(overall_col)
         binary_decision_cols.append(binary_col)
+        for c in leaf_criteria:
+            crit_prob_cols[c["id"]].append(prob_cols[c["id"]])
 
         successes = 0
         failures = 0
@@ -245,7 +250,7 @@ def process_results_boolean(
 
         stats[unique_key] = (successes, failures)
 
-    return df, stats, overall_prob_cols, binary_decision_cols
+    return df, stats, overall_prob_cols, binary_decision_cols, crit_prob_cols
 
 
 def _set_col(df: pd.DataFrame, row_i: int, col: str, value: Any) -> None:
@@ -319,6 +324,45 @@ def add_decision_summary(
 
     new_front = [decision_col, include_col, exclude_col]
     return df[new_front + [c for c in df.columns if c not in new_front]]
+
+
+def add_criterion_disagreement(
+    df: pd.DataFrame,
+    crit_prob_cols: Dict[str, List[str]],
+    resolver: ColResolver,
+) -> Tuple[pd.DataFrame, Dict[str, Optional[float]]]:
+    """For each criterion: add a per-paper std-dev disagreement column at the end of df,
+    then compute Krippendorff's Alpha (interval metric) across all papers.
+    Returns (df, {criterion_id: alpha})."""
+    alphas: Dict[str, Optional[float]] = {}
+
+    for crit_id, col_names in crit_prob_cols.items():
+        disagree_col = resolver.resolve(f"{crit_id}_disagreement")
+        df[disagree_col] = None
+
+        for i, row in df.iterrows():
+            vals = [row[c] for c in col_names if c in df.columns and pd.notna(row[c])]
+            if len(vals) >= 2:
+                df.at[i, disagree_col] = round(float(np.std(vals, ddof=1)), 4)
+
+        # Krippendorff's Alpha — reliability_data shape: (n_raters, n_papers)
+        valid_cols = [c for c in col_names if c in df.columns]
+        if len(valid_cols) >= 2:
+            matrix = np.array(
+                [[v if pd.notna(v) else np.nan for v in df[c]] for c in valid_cols],
+                dtype=float,
+            )
+            try:
+                alphas[crit_id] = round(
+                    float(krippendorff.alpha(matrix, level_of_measurement="interval")), 4
+                )
+            except Exception as e:
+                logger.warning(f"Krippendorff's Alpha failed for {crit_id}: {e}")
+                alphas[crit_id] = None
+        else:
+            alphas[crit_id] = None
+
+    return df, alphas
 
 
 # --- Output ---
@@ -403,14 +447,22 @@ if __name__ == "__main__":
         )
     )
 
-    df, stats, overall_prob_cols, binary_decision_cols = process_results_boolean(
+    df, stats, overall_prob_cols, binary_decision_cols, crit_prob_cols = process_results_boolean(
         model_results, df, models, model_keys, all_leaf_criteria, criteria_yml, resolver
     )
     df = add_overall_probability_stats(df, overall_prob_cols, resolver)
     df = add_decision_summary(df, binary_decision_cols, overall_prob_cols, resolver)
+    df, alphas = add_criterion_disagreement(df, crit_prob_cols, resolver)
     output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(df, output_file)
 
     print("\nModel statistics (criterion-level calls):")
     for model_key, (success, failure) in stats.items():
         print(f"  {model_key}: {success} successes, {failure} failures")
+
+    crit_descriptions = {c["id"]: c["description"] for c in all_leaf_criteria}
+    print("\nKrippendorff's Alpha per criterion (interval metric, higher = more agreement):")
+    for crit_id, alpha in alphas.items():
+        val = f"{alpha:.4f}" if alpha is not None else "N/A"
+        desc = crit_descriptions.get(crit_id, "")
+        print(f"  {crit_id} ({desc}): {val}")
