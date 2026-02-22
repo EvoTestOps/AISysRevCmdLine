@@ -174,14 +174,14 @@ def process_results_boolean(
     leaf_criteria: list[dict],
     criteria_yml: dict,
     resolver: ColResolver,
-) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]], List[str]]:
+) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]], List[str], List[str]]:
     """Parse per-criterion LLM results, apply fuzzy logic, write columns to df.
-    Returns (df, stats, overall_prob_cols) — overall_prob_cols are the resolved
-    _overall_probability column names, passed on to add_overall_probability_stats."""
+    Returns (df, stats, overall_prob_cols, binary_decision_cols)."""
     n_papers = len(df)
     n_criteria = len(leaf_criteria)
     stats = {}
     overall_prob_cols: List[str] = []
+    binary_decision_cols: List[str] = []
 
     for model_idx, model in enumerate(models):
         unique_key = model_keys[model_idx]
@@ -197,6 +197,7 @@ def process_results_boolean(
         overall_col = resolver.resolve(f"{unique_key}_overall_probability")
         binary_col  = resolver.resolve(f"{unique_key}_binary_decision")
         overall_prob_cols.append(overall_col)
+        binary_decision_cols.append(binary_col)
 
         successes = 0
         failures = 0
@@ -244,7 +245,7 @@ def process_results_boolean(
 
         stats[unique_key] = (successes, failures)
 
-    return df, stats, overall_prob_cols
+    return df, stats, overall_prob_cols, binary_decision_cols
 
 
 def _set_col(df: pd.DataFrame, row_i: int, col: str, value: Any) -> None:
@@ -276,6 +277,48 @@ def add_overall_probability_stats(
 
     front = agg_cols + [c for c in df.columns if c not in agg_cols]
     return df[front]
+
+
+def add_decision_summary(
+    df: pd.DataFrame,
+    binary_decision_cols: List[str],
+    overall_prob_cols: List[str],
+    resolver: ColResolver,
+) -> pd.DataFrame:
+    """Prepend 3 summary columns: final_decision, votes_include, votes_exclude.
+    Majority vote across models determines final_decision; ties broken by average overall probability."""
+    decision_col = resolver.resolve("final_decision")
+    include_col  = resolver.resolve("votes_include")
+    exclude_col  = resolver.resolve("votes_exclude")
+
+    for col in [decision_col, include_col, exclude_col]:
+        df[col] = None
+
+    for i, row in df.iterrows():
+        include_votes = sum(
+            1 for col in binary_decision_cols
+            if col in df.columns and pd.notna(row[col]) and bool(row[col]) is True
+        )
+        exclude_votes = sum(
+            1 for col in binary_decision_cols
+            if col in df.columns and pd.notna(row[col]) and bool(row[col]) is False
+        )
+        df.at[i, include_col] = include_votes
+        df.at[i, exclude_col] = exclude_votes
+
+        if include_votes > exclude_votes:
+            decision = "Include"
+        elif exclude_votes > include_votes:
+            decision = "Exclude"
+        else:
+            # Tie-break: use average of overall probabilities
+            probs = [row[col] for col in overall_prob_cols if col in df.columns and pd.notna(row[col])]
+            avg = sum(probs) / len(probs) if probs else 0.0
+            decision = "Include" if avg >= 0.5 else "Exclude"
+        df.at[i, decision_col] = decision
+
+    new_front = [decision_col, include_col, exclude_col]
+    return df[new_front + [c for c in df.columns if c not in new_front]]
 
 
 # --- Output ---
@@ -360,10 +403,11 @@ if __name__ == "__main__":
         )
     )
 
-    df, stats, overall_prob_cols = process_results_boolean(
+    df, stats, overall_prob_cols, binary_decision_cols = process_results_boolean(
         model_results, df, models, model_keys, all_leaf_criteria, criteria_yml, resolver
     )
     df = add_overall_probability_stats(df, overall_prob_cols, resolver)
+    df = add_decision_summary(df, binary_decision_cols, overall_prob_cols, resolver)
     output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(df, output_file)
 
