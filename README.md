@@ -15,6 +15,7 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 - **Inclusion / Exclusion Criteria:** Customize inclusion/exclusion criteria and instructions by copying the example file and adjusting it:
   ```bash
   cp criteria.conf.example criteria.conf
+- **Boolean screening:** `screen_boolean.py` screens papers per-criterion — each criterion is sent as a separate LLM call. Per-criterion probabilities are combined using fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML. A final binary include/exclude decision is derived from the overall probability (threshold 0.5).
 - **Error Handling:** Semi-robust retry logic and error reporting.
 - **Progress Tracking:** Real-time progress bars with `tqdm`.
 

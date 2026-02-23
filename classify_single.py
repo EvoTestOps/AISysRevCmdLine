@@ -40,7 +40,7 @@ def generate_prompts(df: pd.DataFrame, criteria: Dict) -> List[Tuple[str, List[s
     Generates one prompt per paper per classification type.
     Returns list of (prompt, class_options) tuples to group by classification type.
     """
-    with open("prompt_classify_single.conf", "r") as file:
+    with open("prompts/prompt_classify_single.txt", "r") as file:
         prompt_template = file.read()
 
     tasks: List[Tuple[str, List[str]]] = []
