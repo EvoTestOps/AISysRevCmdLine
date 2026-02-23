@@ -12,6 +12,9 @@ AISysRevCmdLine is a command-line tool for automated systematic literature revie
 # Run tests
 pytest
 
+# Convert bibliographic files (.bib / PubMed .txt) to CSV
+python bib2csv.py <file1> [file2 ...] [-o output.csv]
+
 # Run the main screening tool
 python screen.py <csv_file> -n <count|all> -c criteria.conf -m models.conf
 
@@ -36,12 +39,19 @@ Python environment: conda, or venv. Python version: 3.14.
 ## Architecture
 
 **Entry points** — each is a standalone CLI script using argparse:
+- `bib2csv.py` — Bibliographic format converter. Converts WOS/Scopus `.bib` files and PubMed MEDLINE `.txt` exports to a CSV ready for screening. Multiple files can be merged in one call. Output columns: `title, abstract, doi, year, authors, journal, keywords, source_db, entry_key`.
 - `screen.py` — Main screening pipeline. Sends papers to LLMs with criteria, collects structured JSON responses, flattens them into CSV columns.
 - `screen_boolean.py` — Per-criterion screening pipeline. Sends each criterion as a separate LLM call, combines per-criterion probabilities using fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML.
 - `classify.py` — Multi-class probability classification.
 - `classify_single.py` — Single best-fit class assignment using dynamic Pydantic models.
 - `embed.py` — Generate vector embeddings via OpenRouter `/embeddings` endpoint.
 - `plot.py` — UMAP dimensionality reduction + Plotly interactive HTML visualization.
+
+*bib2csv.py (bibliographic import):*
+1. Auto-detect format per file: `.bib` → `parse_bibtex()` (uses `bibtexparser`); `.txt` starting with `PMID` → `parse_pubmed()` (custom MEDLINE line parser)
+2. BibTeX: field lookup is case-insensitive; WOS double-braces `{{value}}` and Scopus single-braces `{value}` both handled; `source_db` inferred from cite-key prefix (`WOS:`) or `source` field
+3. PubMed: tag regex `^([A-Z][A-Z0-9]{1,3})\s*-\s(.+)$`; continuation lines require exactly 6 leading spaces; multi-valued tags (FAU, OT, LID) collected; DOI extracted from `LID` lines ending with `[doi]`
+4. Merge all records into one DataFrame → save CSV
 
 **Shared utilities:**
 - `helpers.py` — CSV validation (auto-detects delimiter, normalizes headers), API key loading (`~/openrouter.key`), model config loading, unique filename generation.
@@ -119,4 +129,9 @@ Uses OpenRouter API (`https://openrouter.ai/api/v1/`) with `temperature: 0`, `to
 
 ## Testing
 
-Tests are in `tests/` with test CSV fixtures in `tests/test_csv_files/`. Testing is mainly done by running commands against OpenRouter with default settings (typically first 10 papers only, keeping costs low). Some unit tests cover CSV validation edge cases (delimiter detection, missing/duplicate columns, header normalization).
+Tests are in `tests/` with test fixtures in `tests/test_csv_files/` (CSV edge cases) and `tests/bibs/` (bibliographic files).
+
+- `tests/test_csv_reader.py` — CSV validation edge cases (delimiter detection, missing/duplicate columns, header normalization).
+- `tests/test_bib2csv.py` — Full test suite for `bib2csv.py`: entry counts for all 8 real bib files, `source_db` correctness, no-`None` values, and per-fault assertions for all 15 fault categories injected in `tests/bibs/wos_faults.bib`, `tests/bibs/scopus_faults.bib`, and `tests/bibs/pubmed_faults.txt`.
+
+Integration testing of screening/classification scripts is done by running commands against OpenRouter with default settings (typically first 10 papers only, keeping costs low).

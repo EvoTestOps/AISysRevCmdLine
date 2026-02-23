@@ -1,0 +1,273 @@
+PMID- 99000001
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20221011
+LR  - 20221012
+IS  - 1932-6203 (Electronic)
+IS  - 1932-6203 (Linking)
+VI  - 17
+IP  - 10
+DP  - 2022
+TI  - On the Monte Carlo weights in multiple criteria decision analysis.
+PG  - e0268950
+LID - 10.1371/journal.pone.0268950 [doi]
+LID - e0268950
+AB  - In multiple-criteria decision making weights of criteria constitute a
+      crucial input for finding an optimal solution. A large number of methods
+      were proposed for criteria weights derivation including direct ranking,
+      point allocation, and pairwise comparisons. The aim of this paper is to
+      approach the problem of determining criteria weights from a different
+      perspective.
+FAU - Mazurek, Jiri
+AU  - Mazurek J
+AD  - Silesian University in Opava, Opava, Czech Republic.
+LA  - eng
+PT  - Journal Article
+PL  - United States
+JT  - PloS one
+OT  - decision analysis
+OT  - criteria weights
+OT  - Monte Carlo method
+PST - epublish
+SO  - PLoS One. 2022 Oct 7;17(10):e0268950.
+
+PMID- 99000002
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20200601
+LR  - 20200601
+IS  - 0272-989X (Linking)
+VI  - 40
+IP  - 4
+DP  - 2020 May
+TI  - Framework for drug formulary decision using multiple-criteria decision analysis.
+PG  - 489-498
+LID - 10.1177/0272989X19892123 [doi]
+FAU - Thokala, Praveen
+AU  - Thokala P
+AD  - University of Sheffield, Sheffield, United Kingdom.
+LA  - eng
+PT  - Journal Article
+PL  - United States
+JT  - Medical Decision Making
+OT  - formulary; MCDM; drug selection
+PST - ppublish
+SO  - Med Decis Making. 2020 May;40(4):489-498.
+
+PMID- 99000003
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20211015
+LR  - 20211015
+IS  - 1552-681X (Electronic)
+VI  - 41
+IP  - 7
+DP  - 2021 Oct
+PG  - 900-910
+LID - 10.1177/0272989X21100234 [doi]
+AB  - Multi-criteria decision analysis is widely applied in health technology
+      assessment to evaluate the relative merits of competing interventions.
+      This paper reviews current practice and identifies methodological gaps
+      in the application of MCDA to drug reimbursement decisions.
+FAU - Dolan, James G.
+AU  - Dolan JG
+AD  - University of Rochester Medical Center, Rochester, NY, USA.
+LA  - eng
+PT  - Review
+PL  - United States
+JT  - Medical Decision Making
+OT  - HTA; reimbursement; MCDA
+PST - ppublish
+SO  - Med Decis Making. 2021 Oct;41(7):900-910.
+
+PMID- 99000004
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20190801
+LR  - 20190801
+IS  - 1932-6203 (Electronic)
+VI  - 14
+IP  - 3
+DP  - 2019
+TI  - Evaluating health outcomes with MCDA: a systematic review.
+PG  - e0213927
+LID - 10.1371/journal.pone.0213927 [doi]
+AB  - Multi-criteria decision analysis (MCDA) has been applied to health
+      outcomes research. Key criteria include cost &amp; effectiveness, safety
+      &lt; threshold, and quality of life &gt; minimum. Some exported records
+      contain &nbsp; separators and &amp;copy; license markers.
+FAU - Smith, Anna B.
+AU  - Smith AB
+AD  - University of Toronto, Toronto, Canada.
+LA  - eng
+PT  - Journal Article
+PT  - Review
+PL  - United States
+JT  - PloS one
+OT  - health outcomes; MCDA; systematic review
+PST - epublish
+SO  - PLoS One. 2019;14(3):e0213927.
+
+PMID- 99000005
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20180501
+LR  - 20180501
+IS  - 1049-8931 (Electronic)
+VI  - 29
+IP  - 2
+DP  - 2018
+TI  - Application of TOPSIS in healthcare priority setting.
+PG  - 112-121
+LID - https://doi.org/10.1002/mcda.1636 [doi]
+AB  - The Technique for Order Preference by Similarity to Ideal Solution
+      (TOPSIS) is applied to healthcare priority setting. We evaluate ten
+      interventions across five criteria and demonstrate how the method
+      ranks alternatives relative to ideal and anti-ideal solutions.
+FAU - Wang, Li and Chen, Fei
+AU  - Wang L
+AU  - Chen F
+AD  - Peking University, Beijing, China.
+LA  - eng
+PT  - Journal Article
+PL  - England
+JT  - Journal of Multi-Criteria Decision Analysis
+OT  - TOPSIS; healthcare; priority setting
+PST - ppublish
+SO  - J Multi-Crit Decis Anal. 2018;29(2):112-121.
+
+PMID- 99000006
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20170301
+LR  - 20170301
+IS  - 0272-989X (Linking)
+VI  - 37
+IP  - 1
+DP  - 2017
+TI  - MCDA methods for benefit-risk assessment of medicines.
+PG  - 78-88
+LID - 10.1177/0272989X16674Your123 [doi]
+AB  - Benefit-risk assessment of medicines can be structured using MCDA.
+    This continuation line uses only four spaces instead of six.
+    Another four-space continuation line follows here for the abstract.
+FAU - Johnson, Robert and Williams, Sarah
+AU  - Johnson R
+AU  - Williams S
+AD  - European Medicines Agency, Amsterdam, Netherlands.
+LA  - eng
+PT  - Journal Article
+PL  - United States
+JT  - Medical Decision Making
+OT  - benefit-risk; medicines; MCDA
+PST - ppublish
+SO  - Med Decis Making. 2017;37(1):78-88.
+
+PMID- 99000007
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20160601
+LR  - 20160601
+IS  - 1049-8931 (Print)
+VI  - 27
+IP  - 1
+DP  - 2016
+TI  - Weighting criteria in multi-criteria decision analysis for HTA.
+PG  - 45-55
+LID - S0272989X16000123
+AB  - Health technology assessment increasingly uses multi-criteria decision
+      analysis. This review examines methods for assigning weights to criteria
+      including swing weighting, direct rating, and pairwise comparison. We
+      compare results across studies and recommend best practices.
+FAU - Garcia, Miguel
+AU  - Garcia M
+AD  - University of Barcelona, Barcelona, Spain.
+LA  - eng
+PT  - Review
+PL  - England
+JT  - Journal of Multi-Criteria Decision Analysis
+OT  - HTA; criteria weighting; swing weighting
+PST - ppublish
+SO  - J Multi-Crit Decis Anal. 2016;27(1):45-55.
+
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20150901
+LR  - 20150901
+IS  - 1932-6203 (Electronic)
+VI  - 10
+IP  - 9
+DP  - 2015
+TI  - Systematic review of MCDA in oncology decision making.
+PG  - e0136990
+LID - 10.1371/journal.pone.0136990 [doi]
+AB  - Multi-criteria decision analysis is applied to oncology decisions
+      including treatment selection, resource allocation, and drug approval.
+      This systematic review identifies 45 studies and summarises
+      methodological approaches and key findings.
+FAU - Thompson, Karen and Patel, Nisha
+AU  - Thompson K
+AU  - Patel N
+AD  - University of Oxford, Oxford, United Kingdom.
+LA  - eng
+PT  - Journal Article
+PT  - Review
+PL  - United States
+JT  - PloS one
+OT  - oncology; MCDA; systematic review
+PST - epublish
+SO  - PLoS One. 2015;10(9):e0136990.
+
+PMID- 99000009
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20140201
+LR  - 20140201
+IS  - 0272-989X (Linking)
+VI  - 34
+IP  - 1
+DP  - Spring 2014
+TI  - Patient preference elicitation using MCDA in rare diseases.
+PG  - 34-45
+LID - 10.1177/0272989X13497557 [doi]
+AB  - This paper presents a structured approach to patient preference elicitation
+      for rare disease treatments using MCDA. Patients ranked attributes
+      including efficacy, side effect profile, route of administration,
+      and frequency of dosing across ten hypothetical treatment profiles.
+FAU - Lee, Susan and Park, James
+AU  - Lee S
+AU  - Park J
+AD  - Harvard Medical School, Boston, MA, USA.
+LA  - eng
+PT  - Journal Article
+PL  - United States
+JT  - Medical Decision Making
+OT  - rare diseases; patient preference; MCDA
+PST - ppublish
+SO  - Med Decis Making. 2014 Spring;34(1):34-45.
+
+PMID- 99000010
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20130501
+LR  - 20130501
+IS  - 1049-8931 (Print)
+VI  - 24
+IP  - 2
+DP  - 22
+TI  - Cost-effectiveness analysis extended by MCDA.
+PG  - 56-67
+LID - 10.1002/mcda.1500 [doi]
+AB  - Cost-effectiveness analysis is extended by incorporating MCDA methods
+      to handle multiple outcomes simultaneously. The proposed framework
+      applies weighted scoring to integrate economic and clinical criteria.
+FAU - Brown, David
+AU  - Brown D
+AD  - London School of Economics, London, United Kingdom.
+LA  - eng
+PT  - Journal Article
+PL  - England
+JT  - Journal of Multi-Criteria Decision Analysis
+OT  - cost-effectiveness; MCDA; decision framework
+PST - ppublish
+SO  - J Multi-Crit Decis Anal. 2013;24(2):56-67.

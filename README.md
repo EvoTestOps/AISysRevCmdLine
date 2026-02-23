@@ -7,6 +7,7 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 ---
 ## Features
+- **Bibliographic import:** `bib2csv.py` converts Web of Science / Scopus `.bib` exports and PubMed MEDLINE `.txt` exports to a CSV ready for screening. Multiple files can be merged in one call.
 - **Structured LLM Responses:** Uses Pydantic AI to enforce structured JSON output from LLMs.
 - **Concurrent API Calls:** Efficiently processes multiple articles and models in parallel
 - **Model selection:** Copy the example file and adjust models you want to run from OpenRouter your settings:
@@ -20,6 +21,29 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 - **Progress Tracking:** Real-time progress bars with `tqdm`.
 
 
+
+## Importing bibliographic files
+
+If your papers are in a database export rather than a CSV, convert them first:
+
+```bash
+# Single file (WOS, Scopus, or PubMed)
+python bib2csv.py export.bib -o papers.csv
+python bib2csv.py pubmed_export.txt -o papers.csv
+# Merge multiple files from different databases
+python bib2csv.py wos.bib scopus.bib pubmed.txt -o papers.csv
+# Wildcards also work
+python bib2csv.py bibs/* -o papers.csv
+```
+
+Supported formats:
+- **Web of Science** — `.bib` export (`@article{ WOS:... }`)
+- **Scopus** — `.bib` export (`@ARTICLE{...}`)
+- **PubMed** — MEDLINE tagged `.txt` export (lines starting with `PMID-`)
+
+Output CSV always contains: `title, abstract, doi, year, authors, journal, keywords, source_db, entry_key`
+
+---
 
 After customizing as shown above, you can run it
 ```bash
