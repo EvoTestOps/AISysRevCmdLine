@@ -16,6 +16,7 @@ from bib2csv import (
     _infer_source_db,
     _is_pubmed,
     _normalize_ws,
+    _normalize_bib_lines,
     _strip_braces,
     parse_file,
 )
@@ -45,9 +46,11 @@ def _records_with_key(records: list, key: str) -> list:
     ("wos.bib",        236),
     ("wos_m.bib",       29),
     ("mcda_wos.bib",   210),
+    ("mika_wos.bib",   104),
     ("scopus.bib",     263),
     ("scopus_m.bib",    24),
     ("mcda_scopus.bib",236),
+    ("mika_scopus.bib",121),
     ("pubmed.txt",     335),
     ("mcda_pubmed.txt", 10),
 ])
@@ -63,8 +66,8 @@ def test_real_file_entry_count(filename, expected_count):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("filename", [
-    "wos.bib", "wos_m.bib", "mcda_wos.bib",
-    "scopus.bib", "scopus_m.bib", "mcda_scopus.bib",
+    "wos.bib", "wos_m.bib", "mcda_wos.bib", "mika_wos.bib",
+    "scopus.bib", "scopus_m.bib", "mcda_scopus.bib", "mika_scopus.bib",
     "pubmed.txt", "mcda_pubmed.txt",
 ])
 def test_real_file_has_correct_columns(filename):
@@ -75,8 +78,8 @@ def test_real_file_has_correct_columns(filename):
 
 
 @pytest.mark.parametrize("filename", [
-    "wos.bib", "wos_m.bib", "mcda_wos.bib",
-    "scopus.bib", "scopus_m.bib", "mcda_scopus.bib",
+    "wos.bib", "wos_m.bib", "mcda_wos.bib", "mika_wos.bib",
+    "scopus.bib", "scopus_m.bib", "mcda_scopus.bib", "mika_scopus.bib",
     "pubmed.txt", "mcda_pubmed.txt",
 ])
 def test_real_file_no_none_values(filename):
@@ -92,9 +95,11 @@ def test_real_file_no_none_values(filename):
     ("wos.bib",        "WOS"),
     ("wos_m.bib",      "WOS"),
     ("mcda_wos.bib",   "WOS"),
+    ("mika_wos.bib",   "WOS"),
     ("scopus.bib",     "Scopus"),
     ("scopus_m.bib",   "Scopus"),
     ("mcda_scopus.bib","Scopus"),
+    ("mika_scopus.bib","Scopus"),
     ("pubmed.txt",     "PubMed"),
     ("mcda_pubmed.txt","PubMed"),
 ])
@@ -104,6 +109,20 @@ def test_real_file_source_db(filename, expected_source):
     assert sources == {expected_source}, (
         f"{filename}: expected source_db={expected_source!r}, got {sources}"
     )
+
+
+def test_mika_scopus_splice_autocorrected():
+    """mika_scopus.bib has one entry whose '@' immediately follows '}' on the
+    same line (missing newline in Scopus export).  _normalize_bib_lines must
+    split it so all 121 entries are parsed."""
+    with open(BIBS_DIR / "mika_scopus.bib", encoding="utf-8", errors="replace") as fh:
+        raw_lines = fh.readlines()
+    normalized = _normalize_bib_lines(raw_lines, "mika_scopus.bib")
+    # After normalization there should be more lines than before
+    assert len(normalized) > len(raw_lines)
+    # And parsing must yield 121 entries
+    records = parse_file(str(BIBS_DIR / "mika_scopus.bib"))
+    assert len(records) == 121
 
 
 @pytest.mark.parametrize("filename,min_fraction", [

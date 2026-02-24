@@ -179,11 +179,39 @@ def _build_bibtex_record(cite_key: str, lines: List[str]) -> Dict:
     }
 
 
+_ENTRY_SPLICE_RE = re.compile(r'(?<=\})\s*(?=@[A-Za-z])')
+
+
+def _normalize_bib_lines(raw_lines: List[str], file_path: str) -> List[str]:
+    """Split lines where closing brace of one entry runs into start of the next.
+
+    Scopus can export ``}@ENTRYTYPE{key,`` without a newline between entries.
+    Such lines are silently split here and a warning is printed.
+    """
+    result: List[str] = []
+    splice_count = 0
+    for raw in raw_lines:
+        line = raw.rstrip("\n")
+        parts = _ENTRY_SPLICE_RE.split(line)
+        if len(parts) > 1:
+            splice_count += 1
+        result.extend(parts)
+    if splice_count:
+        msg = (
+            f"WARN: {file_path}: {splice_count} entry/entries had no newline "
+            "before '@' (missing blank line in export); auto-corrected."
+        )
+        print(msg)
+        logger.warning(msg)
+    return result
+
+
 def parse_bibtex(file_path: str) -> List[Dict]:
     """Parse a .bib file and return a list of record dicts."""
     logger.info("Parsing BibTeX file: %s", file_path)
     with open(file_path, encoding="utf-8", errors="replace") as fh:
-        lines = fh.readlines()
+        raw_lines = fh.readlines()
+    lines = _normalize_bib_lines(raw_lines, file_path)
 
     records = []
     cite_key: Optional[str] = None
