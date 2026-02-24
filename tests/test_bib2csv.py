@@ -51,6 +51,7 @@ def _records_with_key(records: list, key: str) -> list:
     ("scopus_m.bib",    24),
     ("mcda_scopus.bib",236),
     ("mika_scopus.bib",121),
+    ("mika_ieee.bib",   48),
     ("pubmed.txt",     335),
     ("mcda_pubmed.txt", 10),
 ])
@@ -68,6 +69,7 @@ def test_real_file_entry_count(filename, expected_count):
 @pytest.mark.parametrize("filename", [
     "wos.bib", "wos_m.bib", "mcda_wos.bib", "mika_wos.bib",
     "scopus.bib", "scopus_m.bib", "mcda_scopus.bib", "mika_scopus.bib",
+    "mika_ieee.bib",
     "pubmed.txt", "mcda_pubmed.txt",
 ])
 def test_real_file_has_correct_columns(filename):
@@ -80,6 +82,7 @@ def test_real_file_has_correct_columns(filename):
 @pytest.mark.parametrize("filename", [
     "wos.bib", "wos_m.bib", "mcda_wos.bib", "mika_wos.bib",
     "scopus.bib", "scopus_m.bib", "mcda_scopus.bib", "mika_scopus.bib",
+    "mika_ieee.bib",
     "pubmed.txt", "mcda_pubmed.txt",
 ])
 def test_real_file_no_none_values(filename):
@@ -100,6 +103,7 @@ def test_real_file_no_none_values(filename):
     ("scopus_m.bib",   "Scopus"),
     ("mcda_scopus.bib","Scopus"),
     ("mika_scopus.bib","Scopus"),
+    ("mika_ieee.bib",  "IEEE"),
     ("pubmed.txt",     "PubMed"),
     ("mcda_pubmed.txt","PubMed"),
 ])
@@ -123,6 +127,18 @@ def test_mika_scopus_splice_autocorrected():
     # And parsing must yield 121 entries
     records = parse_file(str(BIBS_DIR / "mika_scopus.bib"))
     assert len(records) == 121
+
+
+def test_mika_ieee_splice_autocorrected():
+    """mika_ieee.bib has 47 entries with no newline before '@' (IEEE Xplore
+    export omits blank lines between entries).  _normalize_bib_lines must
+    split all of them so all 48 entries are parsed."""
+    with open(BIBS_DIR / "mika_ieee.bib", encoding="utf-8", errors="replace") as fh:
+        raw_lines = fh.readlines()
+    normalized = _normalize_bib_lines(raw_lines, "mika_ieee.bib")
+    assert len(normalized) >= len(raw_lines) + 47
+    records = parse_file(str(BIBS_DIR / "mika_ieee.bib"))
+    assert len(records) == 48
 
 
 @pytest.mark.parametrize("filename,min_fraction", [
@@ -465,6 +481,10 @@ def test_infer_source_db_scopus_source_field():
 
 def test_infer_source_db_scopus_case_insensitive():
     assert _infer_source_db({"ID": "Smith2022", "source": "SCOPUS"}) == "Scopus"
+
+
+def test_infer_source_db_ieee_numeric_key():
+    assert _infer_source_db({"ID": "10174139", "author": "Sridharan, Murali"}) == "IEEE"
 
 
 def test_infer_source_db_wos_author_field_fallback():

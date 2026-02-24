@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import csv
 import logging
 import re
 import sys
@@ -81,6 +82,9 @@ def _infer_source_db(entry: dict) -> str:
     key = entry.get("ID", "")
     if key.startswith("WOS:"):
         return "WOS"
+    # IEEE Xplore exports use a purely numeric entry key (their internal document ID)
+    if key.isdigit():
+        return "IEEE"
     lower_entry = {k.lower(): v for k, v in entry.items()}
     source = lower_entry.get("source", "").lower()
     if "scopus" in source:
@@ -445,7 +449,7 @@ def main():
     if empty_abstract:
         print(f"WARN: {empty_abstract} entries have no abstract.")
 
-    df.to_csv(output_path, index=False)
+    df.to_csv(output_path, index=False, quoting=csv.QUOTE_ALL, encoding="utf-8-sig")
     print(f"\nWrote {len(df)} records to {output_path}")
 
 
