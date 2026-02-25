@@ -16,3 +16,9 @@ dependencies = [
     "tqdm>=4.67.1",
     "krippendorff>=0.6.0",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (run with -m slow; requires generated fixture files)",
+]

@@ -18,4 +18,8 @@ criteria_classify.yml
 # Log file
 app.log
 
+# Generated large test fixture files (create with: python tests/bibs/generate_large_fixtures.py)
+tests/bibs/wos_large.bib
+tests/bibs/pubmed_large.txt
+
 
