@@ -13,7 +13,10 @@ AISysRevCmdLine is a command-line tool for automated systematic literature revie
 pytest
 
 # Download the SESR-Eval benchmark dataset from Zenodo
-python download_data.py [-o data/] [--no-extract] [--no-verify]
+python download_sesr.py [-o data/] [--no-extract] [--no-verify]
+
+# Download the SYNERGY benchmark datasets from OpenAlex
+python download_synergy.py [DATASET|all] [--list] [--data-dir data/synergy] [--refresh]
 
 # Convert bibliographic files (.bib / PubMed .txt) to CSV
 python bib2csv.py <file1> [file2 ...] [-o output.csv]
@@ -42,7 +45,8 @@ Python environment: conda, or venv. Python version: 3.14.
 ## Architecture
 
 **Entry points** — each is a standalone CLI script using argparse:
-- `download_data.py` — Downloads the SESR-Eval benchmark dataset from Zenodo. Extracts only `data/3-processed-data/`, writes `criteria.conf` and `instructions.txt` into each study subfolder from `secondary_study_data.csv`, copies the authoritative primary study CSV to `primary_correct.csv`, and removes the original `primary_study_data*.csv` files.
+- `download_sesr.py` — Downloads the SESR-Eval benchmark dataset from Zenodo. Extracts only `data/3-processed-data/`, writes `criteria.conf` and `instructions.txt` into each study subfolder from `secondary_study_data.csv`, copies the authoritative primary study CSV to `primary_correct.csv`, and removes the original `primary_study_data*.csv` files.
+- `download_synergy.py` — Downloads SYNERGY benchmark datasets from OpenAlex. Fetches `datasets.toml` from GitHub (cached at `~/.cache/synergy_dataset/datasets.toml`) for eligibility criteria; downloads paper CSVs via the `synergy-dataset` package installed in an isolated venv (`~/.synergy_dataset_env`) to avoid polluting the project environment. Writes `data/synergy/{key}/primary_correct.csv` and `data/synergy/{key}/criteria.conf` for each dataset.
 - `bib2csv.py` — Bibliographic format converter. Converts WOS/Scopus `.bib` files and PubMed MEDLINE `.txt` exports to a CSV ready for screening. Multiple files can be merged in one call. Output columns: `title, abstract, doi, year, authors, journal, keywords, source_db, entry_key`.
 - `screen.py` — Main screening pipeline. Sends papers to LLMs with criteria, collects structured JSON responses, flattens them into CSV columns.
 - `screen_boolean.py` — Per-criterion screening pipeline. Sends each criterion as a separate LLM call, combines per-criterion probabilities using fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML.

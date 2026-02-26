@@ -5,9 +5,9 @@ The dataset contains title-abstract screening data for evaluating LLMs in
 systematic literature reviews.
 
 Usage:
-    python download_data.py
-    python download_data.py -o data/
-    python download_data.py --no-extract
+    python download_sesr.py
+    python download_sesr.py -o data/
+    python download_sesr.py --no-extract
 """
 
 import argparse

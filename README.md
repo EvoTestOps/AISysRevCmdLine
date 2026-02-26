@@ -22,14 +22,16 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 
 
-## Downloading the benchmark dataset
+## Downloading benchmark datasets
+
+### SESR-Eval
 
 The SESR-Eval benchmark dataset [1](#references) (Zenodo record 16408882) contains title-abstract screening data for evaluating LLMs in systematic literature reviews.
 
 ```bash
-python download_data.py            # downloads and extracts to data/sesr/
-python download_data.py -o mydir/  # custom output directory
-python download_data.py --no-extract  # keep package.zip only
+python download_sesr.py            # downloads and extracts to data/sesr/
+python download_sesr.py -o mydir/  # custom output directory
+python download_sesr.py --no-extract  # keep package.zip only
 ```
 
 Each extracted subfolder in `data/sesr/` corresponds to one systematic review and contains:
@@ -38,11 +40,32 @@ Each extracted subfolder in `data/sesr/` corresponds to one systematic review an
 - `criteria.conf` — inclusion/exclusion criteria (ready for `screen.py -c`)
 - `instructions.txt` — prompt instructions (ready for `screen.py -i`)
 
-After running download_data.py you can screen each of the primary studies in each systematic review folder by saying for example
+After running `download_sesr.py` you can screen each of the primary studies in each systematic review folder, for example:
 ```bash
 python screen.py data/sesr/A_decade_of_code_comment/primary_correct.csv -c data/sesr/A_decade_of_code_comment/criteria.conf -i data/sesr/A_decade_of_code_comment/instructions.txt
 ```
-Then you can compare the screening results against the labels that are in the primary_correct.csv file.
+Then you can compare the screening results against the labels in `primary_correct.csv`.
+
+### Synergy
+
+The [SYNERGY dataset](https://github.com/asreview/synergy-dataset) contains 26 systematic review datasets with title-abstract screening data for evaluating LLMs. Papers are fetched from OpenAlex.
+
+```bash
+python download_synergy.py                 # download all active datasets to data/synergy
+python download_synergy.py --list          # list available datasets
+python download_synergy.py Wolters_2018    # download one dataset
+```
+
+Each extracted subfolder in `data/synergy/` corresponds to one systematic review and contains:
+- `primary_correct.csv` — papers to screen (title, abstract, and ground-truth `label_included`)
+- `criteria.conf` — eligibility criteria extracted from the SYNERGY dataset index
+
+After running `download_synergy.py` you can screen each of the primary studies in each systematic review folder, for example:
+```bash
+python screen.py data/synergy/Wolters_2018/primary_correct.csv -c data/synergy/Wolters_2018/criteria.conf
+```
+Then you can compare the screening results against the `label_included` column in `primary_correct.csv`.
+
 ---
 
 ## Importing bibliographic files
