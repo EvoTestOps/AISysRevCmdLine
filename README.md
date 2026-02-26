@@ -33,16 +33,16 @@ python download_data.py --no-extract  # keep package.zip only
 ```
 
 Each extracted subfolder in `data/sesr/` corresponds to one systematic review and contains:
-- `primary_study_data.csv` — papers to screen
+- `primary_correct.csv` — papers to screen (the authoritative version for that review)
 - `secondary_study_data.csv` — review metadata
 - `criteria.conf` — inclusion/exclusion criteria (ready for `screen.py -c`)
 - `instructions.txt` — prompt instructions (ready for `screen.py -i`)
 
 After running download_data.py you can screen each of the primary studies in each systematic review folder by saying for example
 ```bash
-python screen.py data/sesr/A_decade_of_code_comment/primary_study_data.csv -c data/sesr/A_decade_of_code_comment/criteria.conf -i data/sesr/A_decade_of_code_comment/instructions.txt
+python screen.py data/sesr/A_decade_of_code_comment/primary_correct.csv -c data/sesr/A_decade_of_code_comment/criteria.conf -i data/sesr/A_decade_of_code_comment/instructions.txt
 ```
-Then you can compare the screening results against the labels that are in the primary_study_data.csv file.
+Then you can compare the screening results against the labels that are in the primary_correct.csv file.
 ---
 
 ## Importing bibliographic files

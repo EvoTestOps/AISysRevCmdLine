@@ -27,6 +27,34 @@ FILE_SIZE = 67503360  # bytes
 MD5_CHECKSUM = "b1348de05e968435906f32a750f079f7"
 FILENAME = "package.zip"
 
+# Maps study number → the authoritative primary study CSV for that review
+PRIMARY_FILES = {
+    17:  "primary_study_data.csv",
+    32:  "primary_study_data_final.csv",
+    52:  "primary_study_data_final.csv",
+    62:  "primary_study_data_final.csv",
+    76:  "primary_study_data_with_missing_info_and_abstracts_fixed.csv",
+    99:  "primary_study_data.csv",
+    114: "primary_study_data_final.csv",
+    148: "primary_study_data_final.csv",
+    150: "primary_study_data.csv",
+    153: "primary_study_data.csv",
+    154: "primary_study_data.csv",
+    155: "primary_study_data.csv",
+    158: "primary_study_data_final.csv",
+    175: "primary_study_data.csv",
+    182: "primary_study_data.csv",
+    189: "primary_study_data.csv",
+    209: "primary_study_data_final.csv",
+    230: "primary_study_data.csv",
+    248: "primary_study_data.csv",
+    264: "primary_study_data_final.csv",
+    282: "primary_study_data.csv",
+    356: "primary_study_data.csv",
+    403: "primary_study_data.csv",
+    405: "primary_study_data.csv",
+}
+
 
 def verify_md5(path: Path, expected: str) -> bool:
     h = hashlib.md5()
@@ -119,6 +147,7 @@ def main() -> None:
         # Rename numbered folders using first 25 chars of Title from secondary_study_data.csv
         numbered = sorted(p for p in extract_dir.iterdir() if p.is_dir() and p.name.isdigit())
         for folder in numbered:
+            folder_num = int(folder.name)
             secondary_csv = folder / "secondary_study_data.csv"
             if not secondary_csv.exists():
                 continue
@@ -135,6 +164,13 @@ def main() -> None:
                 (folder / "criteria.conf").write_text(criteria_text, encoding="utf-8")
             if instructions_text:
                 (folder / "instructions.txt").write_text(instructions_text, encoding="utf-8")
+            primary_src = PRIMARY_FILES.get(folder_num)
+            if primary_src:
+                src_path = folder / primary_src
+                if src_path.exists():
+                    shutil.copy2(src_path, folder / "primary_correct.csv")
+            for f in folder.glob("primary_study_data*.csv"):
+                f.unlink()
             for unwanted in ("scripts", "backup"):
                 p = folder / unwanted
                 if p.is_dir():
