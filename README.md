@@ -48,7 +48,7 @@ Then you can compare the screening results against the labels in `primary_correc
 
 ### Synergy
 
-The [SYNERGY dataset](https://github.com/asreview/synergy-dataset) contains 26 systematic review datasets with title-abstract screening data for evaluating LLMs. Papers are fetched from OpenAlex.
+The SYNERGY dataset [2](#references) contains 26 systematic review datasets with title-abstract screening data for evaluating LLMs. Papers are fetched from OpenAlex.
 
 ```bash
 python download_synergy.py                 # download all active datasets to data/synergy
@@ -112,3 +112,5 @@ Ensure your CSV is properly escaped. Google sheet to CSV export may produce CSV 
 
 ## References
 [1] Huotala A, Kuutila M, Mäntylä M. SESR-Eval: Dataset for Evaluating LLMs in the Title-Abstract Screening of Systematic Reviews. In Proceedings of the The 19th ACM/IEEE International Symposium on Empirical Software Engineering and Measurement (ESEM) 2025 Oct 2 (pp. 1-12) [https://arxiv.org/abs/2507.19027](https://arxiv.org/abs/2507.19027) [IEEE](https://ieeexplore.ieee.org/abstract/document/11323291)
+
+[2] De Bruin, Jonathan; Ma, Yongchao; Ferdinands, Gerbrich; Teijema, Jelle; Van de Schoot, Rens, 2023, "SYNERGY - Open machine learning dataset on study selection in systematic reviews", [https://doi.org/10.34894/HE6NAQ](https://doi.org/10.34894/HE6NAQ), DataverseNL, V1 [https://github.com/asreview/synergy-dataset](https://github.com/asreview/synergy-dataset)
