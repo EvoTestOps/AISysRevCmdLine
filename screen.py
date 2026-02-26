@@ -341,6 +341,40 @@ def run_nested_async_processing(
     return df, stats, model_keys
 
 
+def add_final_decision(df: pd.DataFrame, model_keys: List[str]) -> pd.DataFrame:
+    votes_include = []
+    votes_exclude = []
+    final_decisions = []
+    has_avg = "average_probability" in df.columns
+
+    for _, row in df.iterrows():
+        inc = sum(
+            1 for key in model_keys
+            if (col := f"{key}_overall_decision_binary_decision") in df.columns
+            and pd.notna(row[col]) and row[col]
+        )
+        exc = sum(
+            1 for key in model_keys
+            if (col := f"{key}_overall_decision_binary_decision") in df.columns
+            and pd.notna(row[col]) and not row[col]
+        )
+        votes_include.append(inc)
+        votes_exclude.append(exc)
+        if inc > exc:
+            decision = "Include"
+        elif exc > inc:
+            decision = "Exclude"
+        else:
+            avg = row["average_probability"] if has_avg and pd.notna(row["average_probability"]) else None
+            decision = "Include" if avg is not None and avg >= 0.5 else "Exclude"
+        final_decisions.append(decision)
+
+    df.insert(0, "votes_exclude", votes_exclude)
+    df.insert(0, "votes_include", votes_include)
+    df.insert(0, "final_decision", final_decisions)
+    return df
+
+
 def add_average_probability(df: pd.DataFrame, model_keys: List[str]) -> pd.DataFrame:
     df["average_probability"] = None
     df["min_probability"] = None
@@ -424,6 +458,7 @@ if __name__ == "__main__":
         df, prompts, models, api_key
     )
     enriched_df = add_average_probability(enriched_df, model_keys)
+    enriched_df = add_final_decision(enriched_df, model_keys)
     output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(enriched_df, output_file)
     print("\nModel statistics:")
