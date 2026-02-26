@@ -22,6 +22,24 @@ It is meant to be a command line equivalent of the [AISysRev](https://github.com
 
 
 
+## Downloading the benchmark dataset
+
+The SESR-Eval benchmark dataset [1](#references) (Zenodo record 16408882) contains title-abstract screening data for evaluating LLMs in systematic literature reviews.
+
+```bash
+python download_data.py            # downloads and extracts to data/sesr/
+python download_data.py -o mydir/  # custom output directory
+python download_data.py --no-extract  # keep package.zip only
+```
+
+Each extracted subfolder in `data/sesr/` corresponds to one systematic review and contains:
+- `primary_study_data.csv` — papers to screen
+- `secondary_study_data.csv` — review metadata
+- `criteria.conf` — inclusion/exclusion criteria (ready for `screen.py -c`)
+- `instructions.txt` — prompt instructions (ready for `screen.py -i`)
+
+---
+
 ## Importing bibliographic files
 
 If your papers are in a database export rather than a CSV, convert them first:
@@ -63,3 +81,6 @@ Not all models return valid responses, e.g., older Llama models. Default setting
 <img width="848" height="130" alt="{33D49869-9DBB-46B4-9A79-B1819A2612F7}" src="https://github.com/user-attachments/assets/1e252878-f9f2-4fae-89d1-6288eca12bd2" />
 
 Ensure your CSV is properly escaped. Google sheet to CSV export may produce CSV lines that contain line breaks without being properly escaped. If that is the case run find "\n" replace " " in Google sheet with regular experssions enabled before exporting to CSV.
+
+## References
+[1] Huotala A, Kuutila M, Mäntylä M. SESR-Eval: Dataset for Evaluating LLMs in the Title-Abstract Screening of Systematic Reviews. In Proceedings of the The 19th ACM/IEEE International Symposium on Empirical Software Engineering and Measurement (ESEM) 2025 Oct 2 (pp. 1-12) [https://arxiv.org/abs/2507.19027](https://arxiv.org/abs/2507.19027) [IEEE](https://ieeexplore.ieee.org/abstract/document/11323291)

@@ -381,6 +381,8 @@ if __name__ == "__main__":
                         help="Path to the criteria config file (default: criteria.conf)")
     parser.add_argument("-m", "--models", default="models.conf",
                         help="Path to the models list file (default: models.conf)")
+    parser.add_argument("-i", "--instructions",
+                        help="Path to a file with additional instructions appended to the prompt (optional)")
     args = parser.parse_args()
 
     # Logic for n_rows: Convert to int unless it's "all"
@@ -399,8 +401,14 @@ if __name__ == "__main__":
     except FileNotFoundError:
         sys.exit(f"Error: Criteria file '{args.criteria}' not found.")
 
-    # Load additional instructions if file exists
+    # Load additional instructions if provided
     additional_instructions = ""
+    if args.instructions:
+        try:
+            with open(args.instructions, "r") as file:
+                additional_instructions = file.read().strip()
+        except FileNotFoundError:
+            sys.exit(f"Error: Instructions file '{args.instructions}' not found.")
     logger.info("Validating CSV file")
     print(f"Config: Rows={args.n_rows}, Criteria={args.criteria}, Models={args.models}")
 

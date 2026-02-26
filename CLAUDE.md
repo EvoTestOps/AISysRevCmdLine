@@ -12,6 +12,9 @@ AISysRevCmdLine is a command-line tool for automated systematic literature revie
 # Run tests
 pytest
 
+# Download the SESR-Eval benchmark dataset from Zenodo
+python download_data.py [-o data/] [--no-extract] [--no-verify]
+
 # Convert bibliographic files (.bib / PubMed .txt) to CSV
 python bib2csv.py <file1> [file2 ...] [-o output.csv]
 
@@ -39,6 +42,7 @@ Python environment: conda, or venv. Python version: 3.14.
 ## Architecture
 
 **Entry points** — each is a standalone CLI script using argparse:
+- `download_data.py` — Downloads the SESR-Eval benchmark dataset from Zenodo. Extracts only `data/3-processed-data/`, writes `criteria.conf` and `instructions.txt` into each study subfolder from `secondary_study_data.csv`.
 - `bib2csv.py` — Bibliographic format converter. Converts WOS/Scopus `.bib` files and PubMed MEDLINE `.txt` exports to a CSV ready for screening. Multiple files can be merged in one call. Output columns: `title, abstract, doi, year, authors, journal, keywords, source_db, entry_key`.
 - `screen.py` — Main screening pipeline. Sends papers to LLMs with criteria, collects structured JSON responses, flattens them into CSV columns.
 - `screen_boolean.py` — Per-criterion screening pipeline. Sends each criterion as a separate LLM call, combines per-criterion probabilities using fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML.
