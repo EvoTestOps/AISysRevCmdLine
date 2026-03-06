@@ -39,6 +39,15 @@ INNER_ZIP_MAP = {
 # Tags expected in Review_data and Title_Abstract fields
 REVIEW_TAGS = ("RTI", "BG", "OBJ", "SEL")
 
+# Maps csr-large CSV filenames to short split names (order matters for 'splits' column)
+CSR_LARGE_SPLITS = {
+    "20240827_dev_set.csv": "dev",
+    "20240827_val_set.csv": "val",
+    "20240827_random_test_set.csv": "random_test",
+    "20240827_heart_test_set.csv": "heart_test",
+    "20240827_HIV_test_set.csv": "hiv_test",
+}
+
 
 def _extract_tag(text: str, tag: str) -> str:
     """Return the text between [TAG] and the next tag (or end of string)."""
@@ -168,6 +177,81 @@ def _build_primary_correct(original: Path, primary: Path) -> tuple[int, int, int
             rows_written += 1
 
     return rows_written, missing_title, missing_abstract
+
+
+def organize_csr_large(base_dir: Path) -> None:
+    """Build secondary_studies.csv from the csr-large split CSVs.
+
+    Reads all split files, deduplicates by Review_URL, and writes one row per
+    secondary study with metadata and a comma-separated list of which splits it
+    appears in.
+    """
+    # study_url -> {"review_title": ..., "background": ..., "objective": ...,
+    #               "selection_criteria": ..., "splits": [split_name, ...]}
+    studies: dict[str, dict] = {}
+
+    for filename, split_name in CSR_LARGE_SPLITS.items():
+        csv_path = base_dir / filename
+        if not csv_path.exists():
+            continue
+        print(f"  Reading {filename} ...")
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                url = row.get("Review_URL", "")
+                if not url:
+                    continue
+                if url not in studies:
+                    studies[url] = {
+                        "review_title": row.get("Review_Title", ""),
+                        "background": row.get("Background", ""),
+                        "objective": row.get("Objective", ""),
+                        "selection_criteria": row.get("Selection_criteria", ""),
+                        "splits": [],
+                        "n_papers": 0,
+                        "n_included": 0,
+                        "n_fulltext_excluded": 0,
+                        "n_tiab_excluded": 0,
+                    }
+                if split_name not in studies[url]["splits"]:
+                    studies[url]["splits"].append(split_name)
+                studies[url]["n_papers"] += 1
+                try:
+                    label = float(row.get("label", ""))
+                except (ValueError, TypeError):
+                    label = None
+                if label == 1.0:
+                    studies[url]["n_included"] += 1
+                elif label == 0.5:
+                    studies[url]["n_fulltext_excluded"] += 1
+                elif label == 0.0:
+                    studies[url]["n_tiab_excluded"] += 1
+
+    if not studies:
+        print(f"  No csr-large split files found in {base_dir}/ — skipping.", file=sys.stderr)
+        return
+
+    out_path = base_dir / "secondary_studies.csv"
+    fields = ["review_url", "review_title", "background", "objective", "selection_criteria", "splits",
+              "n_papers", "n_included", "n_fulltext_excluded", "n_tiab_excluded"]
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for url in sorted(studies):
+            entry = studies[url]
+            writer.writerow({
+                "review_url": url,
+                "review_title": entry["review_title"],
+                "background": entry["background"],
+                "objective": entry["objective"],
+                "selection_criteria": entry["selection_criteria"],
+                "splits": ",".join(entry["splits"]),
+                "n_papers": entry["n_papers"],
+                "n_included": entry["n_included"],
+                "n_fulltext_excluded": entry["n_fulltext_excluded"],
+                "n_tiab_excluded": entry["n_tiab_excluded"],
+            })
+
+    print(f"  Written {len(studies)} secondary studies -> {out_path}")
 
 
 def organize_22rerun(base_dir: Path) -> None:
@@ -342,6 +426,7 @@ def main() -> None:
         for p in dest_folders:
             print(f"  {p}/")
         organize_22rerun(output_dir / "csr-22rerun")
+        organize_csr_large(output_dir / "csr-large")
 
     zip_path.unlink(missing_ok=True)
     print("Done.")
