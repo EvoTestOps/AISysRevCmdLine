@@ -179,6 +179,39 @@ def _build_primary_correct(original: Path, primary: Path) -> tuple[int, int, int
     return rows_written, missing_title, missing_abstract
 
 
+def merge_csr_large_primaries(base_dir: Path) -> None:
+    """Merge all split CSVs into primary_correct.csv, dropping secondary-study columns."""
+    seen: dict[tuple[str, str], dict] = {}  # (review_url, title) -> row
+
+    for filename, split_name in CSR_LARGE_SPLITS.items():
+        csv_path = base_dir / filename
+        if not csv_path.exists():
+            continue
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                url = row.get("Review_URL", "")
+                title = row.get("Title", "")
+                key = (url, title)
+                if key not in seen:
+                    seen[key] = {
+                        "review_url": url,
+                        "title": title,
+                        "abstract": row.get("Abstract_clean", ""),
+                        "label": row.get("label", ""),
+                        "split": split_name,
+                    }
+
+    out_path = base_dir / "primary_correct.csv"
+    fields = ["review_url", "title", "abstract", "label", "split"]
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for row in seen.values():
+            writer.writerow(row)
+
+    print(f"  Written {len(seen)} primary studies -> {out_path}")
+
+
 def organize_csr_large(base_dir: Path) -> None:
     """Build secondary_studies.csv from the csr-large split CSVs.
 
@@ -229,6 +262,8 @@ def organize_csr_large(base_dir: Path) -> None:
     if not studies:
         print(f"  No csr-large split files found in {base_dir}/ — skipping.", file=sys.stderr)
         return
+
+    merge_csr_large_primaries(base_dir)
 
     out_path = base_dir / "secondary_studies.csv"
     fields = ["review_url", "review_title", "background", "objective", "selection_criteria", "splits",
