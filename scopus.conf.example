@@ -1,0 +1,4 @@
+#This is comment
+#This file includes Search string as it comes from Scopus web interface
+#
+( TITLE ( "Risk of Bias" OR "Quality Assessment" OR "Critical Appraisal" OR "Internal Validity Assessment" OR "Methodological Quality" ) AND TITLE-ABS-KEY ( LLM OR Large LANGUAGE Model OR "Chat-gpt" ) AND TITLE-ABS-KEY ( "systematic review" ) )

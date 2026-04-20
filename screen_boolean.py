@@ -330,11 +330,13 @@ def add_criterion_disagreement(
     df: pd.DataFrame,
     crit_prob_cols: Dict[str, List[str]],
     resolver: ColResolver,
-) -> Tuple[pd.DataFrame, Dict[str, Optional[float]]]:
+) -> Tuple[pd.DataFrame, Dict[str, Optional[float]], Dict[str, Optional[float]]]:
     """For each criterion: add a per-paper std-dev disagreement column at the end of df,
-    then compute Krippendorff's Alpha (interval metric) across all papers.
-    Returns (df, {criterion_id: alpha})."""
+    then compute Krippendorff's Alpha (interval metric) and Percent Agreement (binary at 0.5)
+    across all papers.
+    Returns (df, {criterion_id: alpha}, {criterion_id: percent_agreement})."""
     alphas: Dict[str, Optional[float]] = {}
+    pct_agreements: Dict[str, Optional[float]] = {}
 
     for crit_id, col_names in crit_prob_cols.items():
         disagree_col = resolver.resolve(f"{crit_id}_disagreement")
@@ -345,9 +347,9 @@ def add_criterion_disagreement(
             if len(vals) >= 2:
                 df.at[i, disagree_col] = round(float(np.std(vals, ddof=1)), 4)
 
-        # Krippendorff's Alpha — reliability_data shape: (n_raters, n_papers)
         valid_cols = [c for c in col_names if c in df.columns]
         if len(valid_cols) >= 2:
+            # Krippendorff's Alpha — reliability_data shape: (n_raters, n_papers)
             matrix = np.array(
                 [[v if pd.notna(v) else np.nan for v in df[c]] for c in valid_cols],
                 dtype=float,
@@ -359,10 +361,25 @@ def add_criterion_disagreement(
             except Exception as e:
                 logger.warning(f"Krippendorff's Alpha failed for {crit_id}: {e}")
                 alphas[crit_id] = None
+
+            # Percent Agreement — fraction of papers where all raters agree after binarizing at 0.5
+            binary = (matrix >= 0.5).astype(float)
+            binary[np.isnan(matrix)] = np.nan
+            agree_count = 0
+            total_count = 0
+            for col_idx in range(binary.shape[1]):
+                col_vals = binary[:, col_idx]
+                col_vals = col_vals[~np.isnan(col_vals)]
+                if len(col_vals) >= 2:
+                    total_count += 1
+                    if len(set(col_vals)) == 1:
+                        agree_count += 1
+            pct_agreements[crit_id] = round(agree_count / total_count, 4) if total_count > 0 else None
         else:
             alphas[crit_id] = None
+            pct_agreements[crit_id] = None
 
-    return df, alphas
+    return df, alphas, pct_agreements
 
 
 # --- Output ---
@@ -452,7 +469,7 @@ if __name__ == "__main__":
     )
     df = add_overall_probability_stats(df, overall_prob_cols, resolver)
     df = add_decision_summary(df, binary_decision_cols, overall_prob_cols, resolver)
-    df, alphas = add_criterion_disagreement(df, crit_prob_cols, resolver)
+    df, alphas, pct_agreements = add_criterion_disagreement(df, crit_prob_cols, resolver)
     output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(df, output_file)
 
@@ -464,5 +481,11 @@ if __name__ == "__main__":
     print("\nKrippendorff's Alpha per criterion (interval metric, higher = more agreement):")
     for crit_id, alpha in alphas.items():
         val = f"{alpha:.4f}" if alpha is not None else "N/A"
+        desc = crit_descriptions.get(crit_id, "")
+        print(f"  {crit_id} ({desc}): {val}")
+
+    print("\nPercent Agreement per criterion (binary at p=0.5 threshold, higher = more agreement):")
+    for crit_id, pct in pct_agreements.items():
+        val = f"{pct * 100:.1f}%" if pct is not None else "N/A"
         desc = crit_descriptions.get(crit_id, "")
         print(f"  {crit_id} ({desc}): {val}")
