@@ -14,6 +14,7 @@ import yaml
 import numpy as np
 import krippendorff
 import pandas as pd
+from irrCAC.raw import CAC
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 from pydantic_ai.output import ToolOutput
@@ -330,13 +331,14 @@ def add_criterion_disagreement(
     df: pd.DataFrame,
     crit_prob_cols: Dict[str, List[str]],
     resolver: ColResolver,
-) -> Tuple[pd.DataFrame, Dict[str, Optional[float]], Dict[str, Optional[float]]]:
+) -> Tuple[pd.DataFrame, Dict[str, Optional[float]], Dict[str, Optional[float]], Dict[str, Optional[float]]]:
     """For each criterion: add a per-paper std-dev disagreement column at the end of df,
-    then compute Krippendorff's Alpha (interval metric) and Percent Agreement (binary at 0.5)
-    across all papers.
-    Returns (df, {criterion_id: alpha}, {criterion_id: percent_agreement})."""
+    then compute Krippendorff's Alpha (interval), Percent Agreement (binary at 0.5),
+    and Gwet's AC1 (binary at 0.5) across all papers.
+    Returns (df, {criterion_id: alpha}, {criterion_id: percent_agreement}, {criterion_id: ac1})."""
     alphas: Dict[str, Optional[float]] = {}
     pct_agreements: Dict[str, Optional[float]] = {}
+    ac1s: Dict[str, Optional[float]] = {}
 
     for crit_id, col_names in crit_prob_cols.items():
         disagree_col = resolver.resolve(f"{crit_id}_disagreement")
@@ -362,9 +364,11 @@ def add_criterion_disagreement(
                 logger.warning(f"Krippendorff's Alpha failed for {crit_id}: {e}")
                 alphas[crit_id] = None
 
-            # Percent Agreement — fraction of papers where all raters agree after binarizing at 0.5
+            # Binary matrix (n_raters × n_papers) binarized at 0.5
             binary = (matrix >= 0.5).astype(float)
             binary[np.isnan(matrix)] = np.nan
+
+            # Percent Agreement — fraction of papers where all raters agree
             agree_count = 0
             total_count = 0
             for col_idx in range(binary.shape[1]):
@@ -375,11 +379,21 @@ def add_criterion_disagreement(
                     if len(set(col_vals)) == 1:
                         agree_count += 1
             pct_agreements[crit_id] = round(agree_count / total_count, 4) if total_count > 0 else None
+
+            # Gwet's AC1 — irrCAC expects shape (n_papers × n_raters)
+            try:
+                binary_df = pd.DataFrame(binary.T, columns=valid_cols)
+                cac = CAC(binary_df, categories=[0, 1])
+                ac1s[crit_id] = round(float(cac.gwet()["est"]["coefficient_value"]), 4)
+            except Exception as e:
+                logger.warning(f"Gwet's AC1 failed for {crit_id}: {e}")
+                ac1s[crit_id] = None
         else:
             alphas[crit_id] = None
             pct_agreements[crit_id] = None
+            ac1s[crit_id] = None
 
-    return df, alphas, pct_agreements
+    return df, alphas, pct_agreements, ac1s
 
 
 # --- Output ---
@@ -469,7 +483,7 @@ if __name__ == "__main__":
     )
     df = add_overall_probability_stats(df, overall_prob_cols, resolver)
     df = add_decision_summary(df, binary_decision_cols, overall_prob_cols, resolver)
-    df, alphas, pct_agreements = add_criterion_disagreement(df, crit_prob_cols, resolver)
+    df, alphas, pct_agreements, ac1s = add_criterion_disagreement(df, crit_prob_cols, resolver)
     output_file = generate_output_filename(args.csv_file, args.criteria, args.models)
     save_enriched_csv(df, output_file)
 
@@ -489,3 +503,23 @@ if __name__ == "__main__":
         val = f"{pct * 100:.1f}%" if pct is not None else "N/A"
         desc = crit_descriptions.get(crit_id, "")
         print(f"  {crit_id} ({desc}): {val}")
+
+    print("\nGwet's AC1 per criterion (binary at p=0.5 threshold, higher = more agreement):")
+    for crit_id, ac1 in ac1s.items():
+        val = f"{ac1:.4f}" if ac1 is not None else "N/A"
+        desc = crit_descriptions.get(crit_id, "")
+        print(f"  {crit_id} ({desc}): {val}")
+
+    print("\nTrue rate per criterion per model (fraction of papers where criterion prob >= 0.5):")
+    print(f"  {'Criterion':<35} " + "  ".join(f"{mk:>6}" for mk in model_keys))
+    for crit_id, col_names in crit_prob_cols.items():
+        desc = crit_descriptions.get(crit_id, "")
+        label = f"{crit_id} ({desc})"
+        rates = []
+        for col in col_names:
+            if col not in df.columns:
+                rates.append("N/A")
+                continue
+            vals = df[col].dropna()
+            rates.append("N/A" if len(vals) == 0 else f"{(vals >= 0.5).sum() / len(vals) * 100:.0f}%")
+        print(f"  {label:<35} " + "  ".join(f"{r:>6}" for r in rates))

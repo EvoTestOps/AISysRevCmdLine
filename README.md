@@ -104,6 +104,39 @@ Then you see output like this:
 
 After that an enriched CSV file is produced with LLM responses. 
 
+## Boolean screening
+
+`screen_boolean.py` screens papers per-criterion. Each criterion is sent as a separate LLM call, then probabilities are combined with fuzzy boolean logic (AND=MIN, OR=MAX, NOT=1−p) over a criteria tree defined in YAML.
+
+```bash
+python screen_boolean.py papers.csv -n all -c criteria_screen_boolean.yml -m models.conf
+```
+
+Example output for 444 papers with 3 criteria and 2 models:
+
+```
+Krippendorff's Alpha per criterion (interval metric, higher = more agreement):
+  IC1 (Study is done in software industry): 0.4141
+  IC2 (Company name is presented): 0.6077
+  EC1 (Tests of hardware systems): 0.8329
+
+Percent Agreement per criterion (binary at p=0.5 threshold, higher = more agreement):
+  IC1 (Study is done in software industry): 70.5%
+  IC2 (Company name is presented): 90.1%
+  EC1 (Tests of hardware systems): 98.9%
+
+Gwet's AC1 per criterion (binary at p=0.5 threshold, higher = more agreement):
+  IC1 (Study is done in software industry): 0.4238
+  IC2 (Company name is presented): 0.8723
+  EC1 (Tests of hardware systems): 0.9882
+
+True rate per criterion per model (fraction of papers where criterion prob >= 0.5):
+  Criterion                           google/gemini-2.5-flash  openai/gpt-4.1-mini
+  IC1 (Study is done in software industry)    28%     56%
+  IC2 (Company name is presented)        17%      9%
+  EC1 (Tests of hardware systems)         2%      2%
+```
+
 ## Known Issues
 Not all models return valid responses, e.g., older Llama models. Default setting of screen.py only runs 10 first rows, which is handy if you want to collects statistics on how good the models performs in terms of giving valid JSON responses and not blowing up your OpenRouter credits.  If you choose your models carefully you may see good success rate in getting valid output, as in image below
 <img width="848" height="130" alt="{33D49869-9DBB-46B4-9A79-B1819A2612F7}" src="https://github.com/user-attachments/assets/1e252878-f9f2-4fae-89d1-6288eca12bd2" />

@@ -1,0 +1,56 @@
+# Rename to criteria_boolean.yml
+# Inclusion/exclusion criteria for title/abstract screening in systematic reviews.
+#
+# Boolean logic:
+#   Each section (inclusion, exclusion) has an 'operator' (AND | OR) applied to its items.
+#   Items can be either:
+#     - a criterion:  id + description
+#     - a nested group: operator + criteria  (for complex expressions)
+#
+# Decision rule:
+#   Include if: inclusion evaluates to TRUE
+#   Exclude if: exclusion evaluates to TRUE
+#   Final decision: include AND NOT exclude
+#
+# Examples of nested logic:
+#
+#   # (IC1 AND IC2) OR IC3
+#   inclusion:
+#     operator: OR
+#     criteria:
+#       - operator: AND
+#         criteria:
+#           - id: IC1
+#             description: ...
+#           - id: IC2
+#             description: ...
+#       - id: IC3
+#         description: ...
+#
+#   # NOT EC2 (invert a single criterion)
+#   - id: EC2
+#     description: Security and Safety testing
+#     negate: true
+
+title: "Time pressure in software engineering: A systematic review"
+
+abstract: |
+  Context: Large project overruns and overtime work have been reported in the software industry, resulting in additional expense for companies and personal issues for developers. Experiments and case studies have investigated the relationship between time pressure and software quality and productivity.
+  Objective: The present work aims to provide an overview of studies related to time pressure in software engineering; specifically, existing definitions, possible causes, and metrics relevant to time pressure were collected, and a mapping of the studies to software processes and approaches was performed. Moreover, we synthesize results of existing quantitative studies on the effects of time pressure on software development, and offer practical takeaways for practitioners and researchers, based on empirical evidence.
+  Method: Our search strategy examined 5414 sources, found through repository searches and snowballing. Applying inclusion and exclusion criteria resulted in the selection of 102 papers, which made relevant contributions related to time pressure in software engineering.
+  Results: The majority of high quality studies report increased productivity and decreased quality under time pressure. The most frequent categories of studies focus on quality assurance, cost estimation, and process simulation. It appears that time pressure is usually caused by errors in cost estimation. The effect of time pressure is most often identified during software quality assurance.
+  Conclusions: The majority of empirical studies report increased productivity under time pressure, while the most cost estimation and process simulation models assume that compressing the schedule increases the total needed hours. We also find evidence of the mediating effect of knowledge on the effects of time pressure, and that tight deadlines impact tasks with an algorithmic nature more severely. Future research should better contextualize quantitative studies to account for the existing conflicting results and to provide an understanding of situations when time pressure is either beneficial or harmful.
+
+inclusion:
+  operator: OR   # paper must satisfy ANY inclusion criterion
+  criteria:
+    - id: IC1
+      description: The main focus is time pressure in software engineering.
+    - id: IC2
+      description: The paper presents empirical evidence of time pressure in software engineering
+
+exclusion:
+  operator: OR    # paper is excluded if ANY exclusion criterion is met
+  criteria:
+    - id: EC1
+      description: The task studied is not a software development task.

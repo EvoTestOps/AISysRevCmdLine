@@ -1,0 +1,22 @@
+# Prompt template for generate_search_terms.py — one criterion per LLM call.
+# Placeholders:
+#   {0} = secondary study title
+#   {1} = secondary study abstract
+#   {2} = criterion description
+
+You are an expert in systematic literature reviews.
+
+You are helping to screen full texts of papers for the following secondary study:
+
+Title: {0}
+Abstract:
+{1}
+
+Generate search terms and synonyms that would identify text passages in a paper
+relevant to this criterion:
+
+Criterion: {2}
+
+Return a list of concise search terms (individual words or short phrases). Include
+synonyms, related concepts, and alternative phrasings that an author might use.
+Do not include explanations — only the terms.
